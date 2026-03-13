@@ -191,7 +191,7 @@ docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 ---
 
-## 阿里云部署完整指南（ECS + RDS + Nginx）
+## 阿里云部署完整指南（ECS + MySql + Nginx）
 
 > 推荐配置：ECS（2核4G，Ubuntu 22.04）+ RDS MySQL 8.0 + 域名 + SSL 证书
 
@@ -213,6 +213,8 @@ docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
    # 安装 Node.js 20
    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
    apt install -y nodejs git nginx
+   # 启用 corepack 并安装 pnpm
+   corepack enable && corepack prepare pnpm@latest --activate
    # 安装 PM2
    npm install -g pm2
    ```
@@ -303,7 +305,7 @@ EXIT;
 cd /opt/astock
 
 # 安装依赖（仅生产依赖）
-npm install --omit=dev
+pnpm install --prod
 
 # 配置环境变量
 cp .env.example .env
@@ -328,7 +330,7 @@ JWT_SECRET=替换为64位以上随机字符串
 
 ```bash
 # 构建前端
-npm run build
+pnpm run build
 
 # 用 PM2 启动并设置开机自启
 pm2 start server.js --name astock
@@ -338,7 +340,34 @@ pm2 startup   # 按提示执行输出的命令
 
 ---
 
-### 第五步：配置 Nginx + HTTPS
+### 第五步：安装 Ollama（可选，启用 AI 投资顾问）
+
+> **资源要求**：qwen2.5:3b 模型推理需约 4~5GB 内存，建议 ECS 内存 **≥ 8G**。2核4G 机器不建议开启，CPU 推理单次响应可能需要 30~120 秒。
+
+若无需 AI 投资顾问功能，跳过此步骤，持仓和行情功能不受影响。
+
+```bash
+# 安装 Ollama
+curl -fsSL https://ollama.ai/install.sh | sh
+
+# 设置开机自启并立即启动
+systemctl enable ollama
+systemctl start ollama
+
+# 拉取推荐模型（约 1.9GB，中文能力强且轻量）
+ollama pull qwen2.5:3b
+
+# 验证服务是否正常
+curl http://localhost:11434/api/tags
+```
+
+Ollama 默认监听 `http://localhost:11434`，与 `.env` 中的 `OLLAMA_BASE_URL` 默认值一致，**无需修改任何配置**。
+
+> ⚠️ Ollama 仅监听本机，阿里云安全组**无需**开放 11434 端口。
+
+---
+
+### 第六步：配置 Nginx + HTTPS
 
 1. **申请 SSL 证书**：阿里云控制台 → **数字证书管理** → 免费申请 DV 证书（有效期 1 年），下载 **Nginx** 格式的证书文件（`xxx.pem` + `xxx.key`），上传到 ECS `/etc/ssl/astock/`
 
@@ -414,18 +443,18 @@ pm2 startup   # 按提示执行输出的命令
 
 ---
 
-### 第六步：后续更新代码
+### 第七步：后续更新代码
 
 **方式一（Git）：**
 ```bash
 cd /opt/astock
 git pull
-npm install --omit=dev
-npm run build
+pnpm install --prod
+pnpm run build
 pm2 restart astock
 ```
 
-**方式二（scp）：** 重新在本地打包，执行第二步的 `tar + scp` 命令上传，解压后重跑 `npm install && npm run build && pm2 restart astock`。
+**方式二（scp）：** 重新在本地打包，执行第二步的 `tar + scp` 命令上传，解压后重跑 `pnpm install --prod && pnpm run build && pm2 restart astock`。
 
 ---
 

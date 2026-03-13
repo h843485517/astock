@@ -3,8 +3,9 @@
   "version": "1.0.0",
   "description": "A股实时收益追踪器 - 前后端不分离 Web 应用",
   "main": "server.js",
+  "packageManager": "pnpm@10.12.4",
   "scripts": {
-    "start": "npm run build && node server.js",
+    "start": "pnpm run build && node server.js",
     "build": "vite build",
     "dev": "concurrently \"nodemon server.js\" \"vite\"",
     "docker:build": "docker build -t astock-tracker .",
@@ -21,6 +22,7 @@
     "express-rate-limit": "^8.3.1",
     "express-slow-down": "^3.1.0",
     "helmet": "^8.1.0",
+    "iconv-lite": "^0.7.2",
     "jsonwebtoken": "^9.0.3",
     "mysql2": "^3.19.1",
     "vue": "^3.5.30",
@@ -32,5 +34,11 @@
     "concurrently": "^9.2.1",
     "nodemon": "^3.0.2",
     "vite": "^5.4.21"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "bcrypt",
+      "esbuild"
+    ]
   }
 }

@@ -27,7 +27,8 @@
 
 ### 前置要求
 
-- Node.js >= 16
+- Node.js >= 20
+- pnpm >= 9（`npm install -g pnpm` 或 `corepack enable`）
 - MySQL 5.7+（或 MySQL 8）
 - （可选）[Ollama](https://ollama.ai) ——启用 AI 投资顾问功能
 
@@ -35,20 +36,23 @@
 
 ```bash
 # 1. 安装依赖
-npm install
+pnpm install
 
 # 2. 配置环境变量
 cp .env.example .env
 # 编辑 .env，填写 MySQL 连接信息和 JWT_SECRET
+MYSQL_PASSWORD=你的MySQL密码
+# 生成强随机密钥：node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
+JWT_SECRET=替换为64位以上随机字符串
 
 # 3. 构建前端
-npm run build
+pnpm run build
 
 # 4. 启动服务
-npm start
+pnpm start
 
 # 开发模式（热重启）
-npm run dev
+pnpm run dev
 ```
 
 访问 [http://localhost:3000](http://localhost:3000)，注册账号后开始使用。

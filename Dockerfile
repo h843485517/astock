@@ -3,25 +3,31 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-COPY package*.json ./
+# 启用 corepack 并激活 pnpm（Node.js 20 内置）
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+COPY package.json pnpm-lock.yaml ./
 
 # 安装全量依赖（包含 vite 等 devDependencies）
-RUN npm ci
+RUN pnpm install --frozen-lockfile
 
 COPY . .
 
 # 编译前端静态资源到 dist/
-RUN npm run build
+RUN pnpm run build
 
 # ── 阶段二：生产运行 ────────────────────────────────────────────
 FROM node:20-alpine
 
 WORKDIR /app
 
-COPY package*.json ./
+# 启用 corepack 并激活 pnpm
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+COPY package.json pnpm-lock.yaml ./
 
 # 仅安装生产依赖
-RUN npm ci --only=production
+RUN pnpm install --frozen-lockfile --prod
 
 # 从构建阶段复制源码和编译产物
 COPY --from=builder /app/dist ./dist
