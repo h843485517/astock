@@ -1,0 +1,10 @@
+.env
+node_modules/
+data/
+.git/
+.gitignore
+*.log
+.DS_Store
+.comate/
+client/
+vite.config.js
