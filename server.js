@@ -43,8 +43,10 @@ const app  = express();
 const PORT = process.env.PORT || 3000;
 
 // ─── 安全头 & 压缩 ────────────────────────────────────────────
+// 根据部署协议决定安全策略：HTTPS 环境启用完整 CSP，HTTP 环境禁用强制升级
+const isHttpsDeployment = process.env.HTTPS_ENABLED === 'true';
 app.use(helmet({
-  contentSecurityPolicy: {
+  contentSecurityPolicy: isHttpsDeployment ? {
     directives: {
       defaultSrc:  ["'self'"],
       scriptSrc:   ["'self'", "'unsafe-inline'", 'unpkg.com', 'cdn.jsdelivr.net'],
@@ -53,7 +55,8 @@ app.use(helmet({
       imgSrc:      ["'self'", 'data:'],
       connectSrc:  ["'self'"],
     },
-  },
+  } : false, // HTTP 环境下禁用 CSP（避免 upgrade-insecure-requests）
+  strictTransportSecurity: isHttpsDeployment, // 仅 HTTPS 环境启用 HSTS
 }));
 
 // SSE 路由跳过压缩，避免 compression 缓冲导致数据无法实时推送
@@ -132,7 +135,10 @@ function killPort(port) {
 // ─── 启动服务（先释放端口 → 初始化数据库 → 监听）──────────────
 let server;
 (async () => {
-  await killPort(PORT);
+  // Docker 容器环境跳过端i容器启动时端口始终可用）
+  if (!process.env.DOCKER_ENV) {
+    await killPort(PORT);
+  }
   await initDatabase();
   server = app.listen(PORT, () => {
     console.log(`✅ A股收益追踪器已启动：http://localhost:${PORT}`);

@@ -191,15 +191,15 @@ docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 ---
 
-## 阿里云部署完整指南（ECS + MySql + Nginx）
+## 阿里云部署完整指南（ECS + Docker Compose）
 
-> 推荐配置：ECS（2核4G，Ubuntu 22.04）+ RDS MySQL 8.0 + 域名 + SSL 证书
+> 推荐配置：ECS（2核4G，Ubuntu 22.04），已安装 Docker。项目自带 `docker-compose.yml`，MySQL、Ollama、应用全部容器化，无需手动安装任何服务。
 
 ### 第一步：购买并初始化 ECS
 
 1. 登录[阿里云控制台](https://ecs.console.aliyun.com)，购买 ECS 实例
    - 操作系统选择 **Ubuntu 22.04 LTS 64位**
-   - 安全组放通端口：`22`（SSH）、`80`（HTTP）、`443`（HTTPS）
+   - 安全组放通端口：`22`（SSH）、`3000`（应用端口）
    - 建议同时购买**弹性公网 IP** 并绑定到实例
 
 2. SSH 登录 ECS：
@@ -207,16 +207,15 @@ docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
    ssh root@<你的公网IP>
    ```
 
-3. 初始化服务器环境：
+3. 确认 Docker 已安装并运行：
    ```bash
-   apt update && apt upgrade -y
-   # 安装 Node.js 20
-   curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-   apt install -y nodejs git nginx
-   # 启用 corepack 并安装 pnpm
-   corepack enable && corepack prepare pnpm@latest --activate
-   # 安装 PM2
-   npm install -g pm2
+   docker --version
+   docker compose version
+   ```
+   若未安装，执行：
+   ```bash
+   curl -fsSL https://get.docker.com | sh
+   systemctl enable docker && systemctl start docker
    ```
 
 ---
@@ -266,195 +265,65 @@ tar -xzf /opt/astock.tar.gz -C /opt/astock
 
 ---
 
-### 第三步：在 ECS 上安装 MySQL
-
-```bash
-# 安装 MySQL 8.0
-apt install -y mysql-server
-
-# 启动并设置开机自启
-systemctl start mysql
-systemctl enable mysql
-
-# 初始化安全配置（设置 root 密码、移除匿名账号等）
-mysql_secure_installation
-```
-
-登录 MySQL，创建专用数据库和账号（**不要直接用 root**）：
-
-```sql
-mysql -u root -p
-
--- 创建数据库
-CREATE DATABASE astock CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
--- 创建专用账号，仅允许本机登录
-CREATE USER 'astock_user'@'localhost' IDENTIFIED BY '你的强密码';
-GRANT ALL PRIVILEGES ON astock.* TO 'astock_user'@'localhost';
-FLUSH PRIVILEGES;
-EXIT;
-```
-
-> ⚠️ 阿里云安全组**无需**开放 3306 端口，MySQL 只在本机内部访问，安全性更高。
-
----
-
-### 第四步：部署应用代码
+### 第三步：配置环境变量
 
 ```bash
 cd /opt/astock
-
-# 安装依赖（仅生产依赖）
-pnpm install --prod
-
-# 配置环境变量
 cp .env.example .env
 ```
 
-编辑 `.env`，填入以下关键配置：
+编辑 `.env`，填入以下关键配置（其余保持默认即可）：
 
 ```ini
-NODE_ENV=production
-PORT=3000
 
-# MySQL 本机部署，直接用 localhost
-MYSQL_HOST=localhost
-MYSQL_PORT=3306
+# MySQL 容器内通信，HOST 固定填 db（docker-compose 服务名）
 MYSQL_USER=astock_user
 MYSQL_PASSWORD=你的强密码
-MYSQL_DATABASE=astock
-
-# 生成强随机密钥：node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
+# 生成强随机密钥：openssl rand -hex 64
 JWT_SECRET=替换为64位以上随机字符串
 ```
 
-```bash
-# 构建前端
-pnpm run build
-
-# 用 PM2 启动并设置开机自启
-pm2 start server.js --name astock
-pm2 save
-pm2 startup   # 按提示执行输出的命令
-```
+> ⚠️ `MYSQL_PASSWORD` 和 `JWT_SECRET` 不要使用简单字符串，生产环境务必设置强密码/密钥。
 
 ---
 
-### 第五步：安装 Ollama（可选，启用 AI 投资顾问）
-
-> **资源要求**：qwen2.5:3b 模型推理需约 4~5GB 内存，建议 ECS 内存 **≥ 8G**。2核4G 机器不建议开启，CPU 推理单次响应可能需要 30~120 秒。
-
-若无需 AI 投资顾问功能，跳过此步骤，持仓和行情功能不受影响。
+### 第四步：启动所有服务
 
 ```bash
-# 安装 Ollama
-curl -fsSL https://ollama.ai/install.sh | sh
-
-# 设置开机自启并立即启动
-systemctl enable ollama
-systemctl start ollama
-
-# 拉取推荐模型（约 1.9GB，中文能力强且轻量）
-ollama pull qwen2.5:3b
-
-# 验证服务是否正常
-curl http://localhost:11434/api/tags
+cd /opt/astock
+docker compose up -d --build
 ```
 
-Ollama 默认监听 `http://localhost:11434`，与 `.env` 中的 `OLLAMA_BASE_URL` 默认值一致，**无需修改任何配置**。
+此命令会自动完成：
+- 构建应用镜像（含前端 Vite 编译）
+- 启动 MySQL 8.0 容器，数据持久化到 Docker volume
+- 启动 Ollama 容器，并自动拉取 qwen2.5:3b 模型（首次约需几分钟，需 ECS 内存 ≥ 8G）
+- 启动应用容器，等待 MySQL 健康检查通过后自动连接
 
-> ⚠️ Ollama 仅监听本机，阿里云安全组**无需**开放 11434 端口。
+查看启动状态：
 
----
+```bash
+docker compose ps           # 查看各容器运行状态
+docker compose logs -f app  # 实时查看应用日志
+docker compose logs app --tail=50 # 如果日志太长，只看最后 50 行
+```
 
-### 第六步：配置 Nginx + HTTPS
+启动成功后访问 `http://<你的公网IP>:3000`。
 
-1. **申请 SSL 证书**：阿里云控制台 → **数字证书管理** → 免费申请 DV 证书（有效期 1 年），下载 **Nginx** 格式的证书文件（`xxx.pem` + `xxx.key`），上传到 ECS `/etc/ssl/astock/`
-
-2. **配置 Nginx**：
-
-   ```bash
-   vim /etc/nginx/sites-available/astock
-   ```
-
-   写入以下内容（替换域名和证书路径）：
-
-   ```nginx
-   # HTTP → HTTPS 跳转
-   server {
-       listen 80;
-       server_name your-domain.com;
-       return 301 https://$host$request_uri;
-   }
-
-   server {
-       listen 443 ssl;
-       server_name your-domain.com;
-
-       ssl_certificate     /etc/ssl/astock/xxx.pem;
-       ssl_certificate_key /etc/ssl/astock/xxx.key;
-       ssl_protocols       TLSv1.2 TLSv1.3;
-
-       # 静态资源缓存（长期缓存带哈希的 JS/CSS）
-       location ~* \.(js|css|png|jpg|svg|ico|woff2)$ {
-           root /opt/astock/dist;
-           expires 30d;
-           add_header Cache-Control "public, immutable";
-       }
-
-       # SSE 接口：禁止缓冲，保障实时推送
-       location ~ ^/api/(market-index/stream|positions/stream|chat/stream) {
-           proxy_pass http://127.0.0.1:3000;
-           proxy_buffering         off;
-           proxy_cache             off;
-           proxy_set_header        Connection '';
-           proxy_http_version      1.1;
-           chunked_transfer_encoding on;
-           proxy_set_header        Host $host;
-           proxy_set_header        X-Real-IP $remote_addr;
-       }
-
-       # 普通 API 反代
-       location /api/ {
-           proxy_pass http://127.0.0.1:3000;
-           proxy_set_header Host              $host;
-           proxy_set_header X-Real-IP         $remote_addr;
-           proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-           proxy_set_header X-Forwarded-Proto $scheme;
-       }
-
-       # SPA 路由兜底
-       location / {
-           root /opt/astock/dist;
-           try_files $uri $uri/ /index.html;
-       }
-   }
-   ```
-
-3. **启用并重载 Nginx**：
-
-   ```bash
-   ln -s /etc/nginx/sites-available/astock /etc/nginx/sites-enabled/
-   nginx -t          # 校验配置
-   systemctl reload nginx
-   ```
-
-4. 将域名 **A 记录**解析到 ECS 公网 IP（阿里云云解析 DNS 控制台操作）。
+> 若无需 AI 投资顾问功能，可在 `docker-compose.yml` 中注释掉 `ollama` 和 `ollama-init` 服务，节省内存。
 
 ---
 
-### 第七步：后续更新代码
+### 第五步：后续更新代码
 
 **方式一（Git）：**
 ```bash
 cd /opt/astock
 git pull
-pnpm install --prod
-pnpm run build
-pm2 restart astock
+docker compose up -d --build app   # 仅重建应用容器，不影响数据库和 Ollama
 ```
 
-**方式二（scp）：** 重新在本地打包，执行第二步的 `tar + scp` 命令上传，解压后重跑 `pnpm install --prod && pnpm run build && pm2 restart astock`。
+**方式二（scp）：** 重新打包上传，解压后重跑 `docker compose up -d --build app`。
 
 ---
 
@@ -463,12 +332,11 @@ pm2 restart astock
 | 资源 | 规格 | 参考月费 |
 |------|------|---------|
 | ECS | 2核4G，按量付费 | ¥100~200/月 |
-| MySQL（ECS 自建） | 装在 ECS 上，无额外费用 | 免费 |
+| MySQL（Docker 容器） | 运行在 ECS 上，无额外费用 | 免费 |
 | 公网 IP | 按流量计费 | ¥5~30/月 |
-| SSL 证书 | DV 免费证书 | 免费 |
-| 域名 | .com | ¥50~80/年 |
+| 域名 | .com（可选） | ¥50~80/年 |
 
-> 个人项目可选择更小规格（ECS 1核2G + RDS 最小规格）进一步降低费用。
+> Ollama 需要约 4~5GB 内存，2核4G 机器建议关闭 Ollama 容器，持仓和行情功能不受影响。
 
 ---
 

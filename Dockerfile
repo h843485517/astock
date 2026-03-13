@@ -37,6 +37,4 @@ COPY --from=builder /app/server.js ./server.js
 # 确保数据目录存在
 RUN mkdir -p data
 
-EXPOSE 3000
-
 CMD ["node", "server.js"]

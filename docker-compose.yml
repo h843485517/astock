@@ -1,68 +1,75 @@
 services:
-  db:
-    image: mysql:8.0
-    container_name: astock-db
-    restart: unless-stopped
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD}
-      MYSQL_DATABASE: ${MYSQL_DATABASE}
-    volumes:
-      - db_data:/var/lib/mysql
-    ports:
-      - "3306:3306"
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_PASSWORD}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+  # 注释掉 db 服务，使用 ECS 自带 MySQL
+  # db:
+  #   image: mysql:8.0
+  #   container_name: astock-db
+  #   restart: unless-stopped
+  #   environment:
+  #     MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD}
+  #     MYSQL_DATABASE: ${MYSQL_DATABASE}
+  #   volumes:
+  #     - db_data:/var/lib/mysql
+  #   ports:
+  #     - "3306:3306"
+  #   healthcheck:
+  #     test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_PASSWORD}"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
 
-  ollama:
-    image: ollama/ollama
-    container_name: astock-ollama
-    restart: unless-stopped
-    volumes:
-      - ollama_data:/root/.ollama
-    ports:
-      - "11434:11434"
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/tags || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 20s
+  # Ollama（可选）：启用 AI 投资顾问功能，需要 ECS 内存 ≥ 8G
+  # 若无需 AI 功能或内存不足，注释掉 ollama 和 ollama-init 服务即可
+  # ollama:
+  #   image: ollama/ollama
+  #   container_name: astock-ollama
+  #   restart: unless-stopped
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   ports:
+  #     - "11434:11434"
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/tags || exit 1"]
+  #     interval: 15s
+  #     timeout: 5s
+  #     retries: 10
+  #     start_period: 20s
 
-  # 首次启动时自动拉取模型，拉取完成后自动退出
-  ollama-init:
-    image: ollama/ollama
-    container_name: astock-ollama-init
-    restart: "no"
-    environment:
-      OLLAMA_HOST: http://ollama:11434
-    entrypoint: ["sh", "-c", "sleep 5 && ollama pull ${OLLAMA_MODEL:-qwen2.5:3b}"]
-    depends_on:
-      ollama:
-        condition: service_healthy
+  # # 首次启动时自动拉取模型，拉取完成后自动退出
+  # ollama-init:
+  #   image: ollama/ollama
+  #   container_name: astock-ollama-init
+  #   restart: "no"
+  #   environment:
+  #     OLLAMA_HOST: http://ollama:11434
+  #   entrypoint: ["sh", "-c", "sleep 5 && ollama pull ${OLLAMA_MODEL:-qwen2.5:3b}"]
+  #   depends_on:
+  #     ollama:
+  #       condition: service_healthy
 
   app:
     build: .
     container_name: astock-app
     restart: unless-stopped
     ports:
-      - "${PORT:-3000}:3000"
+      - "${PORT:-3000}:${PORT:-3000}"
     env_file:
       - .env
     environment:
-      MYSQL_HOST: db
+      DOCKER_ENV: "true"
+      PORT: ${PORT:-3000}
+      HTTPS_ENABLED: ${HTTPS_ENABLED:-false}
+      # 使用 ECS 自带 MySQL，通过 Docker 桥接网关访问宿主机
+      MYSQL_HOST: 172.17.0.1
       JWT_SECRET: ${JWT_SECRET}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
       # 容器内使用服务名访问 Ollama，覆盖 .env 中的 localhost 地址
       OLLAMA_BASE_URL: http://ollama:11434
     depends_on:
-      db:
-        condition: service_healthy
-      ollama:
-        condition: service_healthy
+      # ollama:
+      #   condition: service_healthy
 
 volumes:
-  db_data:
+  # db_data:
   ollama_data:

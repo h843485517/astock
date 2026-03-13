@@ -75,10 +75,11 @@ router.post('/register', registerLimiter, async (req, res) => {
     const { id } = await db.createUser(username, passwordHash);
 
     const token = jwt.sign({ id, username }, getSecret(), { expiresIn: EXPIRES_IN });
+    const isHttps = req.protocol === 'https' || req.secure;
     res.cookie('token', token, {
       httpOnly: true,
       sameSite: 'strict',
-      secure: process.env.NODE_ENV === 'production',
+      secure: isHttps && process.env.NODE_ENV === 'production',
       maxAge: COOKIE_MAX_AGE_MS,
     });
     ok(res, { username });
@@ -108,10 +109,11 @@ router.post('/login', loginLimiter, async (req, res) => {
     db.updateLastLogin(user.id).catch(() => {});
 
     const token = jwt.sign({ id: user.id, username: user.username }, getSecret(), { expiresIn: EXPIRES_IN });
+    const isHttps = req.protocol === 'https' || req.secure;
     res.cookie('token', token, {
       httpOnly: true,
       sameSite: 'strict',
-      secure: process.env.NODE_ENV === 'production',
+      secure: isHttps && process.env.NODE_ENV === 'production',
       maxAge: COOKIE_MAX_AGE_MS,
     });
     ok(res, { username: user.username });
