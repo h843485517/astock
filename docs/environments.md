@@ -9,7 +9,7 @@
 ### 启动命令
 
 ```bash
-npm run dev
+pnpm run dev
 ```
 
 `concurrently` 同时启动以下两个进程：
@@ -20,7 +20,7 @@ npm run dev
 - 设置 `NODE_ENV=development`，**不启用 cluster 多核**，以单进程运行
 - `nodemon` 监听源码变动，自动热重启
 - MySQL 连接本地数据库（默认 `localhost:3306`）
-- Ollama AI 服务地址 `http://localhost:11434`（**按需连接**：启动时不建立连接，仅当用户在 AI 投资顾问页面发送消息时，才实时发起请求；Ollama 不可达时返回错误提示，不影响持仓和行情功能）
+- AI 投资顾问默认走**免费模式**（OpenAI 兼容 API，如智谱 AI），仅当用户在 Chat 页面发送消息时才实时请求；VIP 用户走本地 Ollama（`http://localhost:11434`），两者均不影响持仓和行情功能
 
 ### 2. 前端开发服务器（Vite）
 
@@ -42,11 +42,11 @@ npm run dev
 **方式一：直接运行**
 
 ```bash
-npm run build   # Vite 构建前端静态资源到 dist/
-npm start       # 先 build 再 node server.js
+pnpm run build   # Vite 构建前端静态资源到 dist/
+pnpm start       # node server.js（生产模式，自动启用 cluster）
 ```
 
-**方式二：Docker Compose 部署（推荐）**
+**方式二：Docker Compose 部署（推荐，适合 ECS）**
 
 ```bash
 cp .env.example .env        # 配置环境变量
@@ -81,20 +81,21 @@ docker-compose up -d
 
 ### Docker Compose 容器编排
 
-`docker-compose.yml` 定义了四个服务：
+`docker-compose.yml` 当前针对 ECS 环境优化，仅包含一个必需服务：
 
 | 容器 | 镜像 | 说明 |
 |---|---|---|
 | `astock-app` | 本地 Dockerfile 构建 | 主应用（Node.js + Express） |
-| `astock-db` | `mysql:8.0` | MySQL 数据库，数据持久化到 volume |
-| `astock-ollama` | `ollama/ollama` | AI 模型服务 |
-| `astock-ollama-init` | `ollama/ollama` | 一次性任务，自动拉取 qwen2.5:3b 模型 |
 
-容器间通过 Docker 服务名通信（而非 localhost）：
+> **已注释的可选服务：**
+> - `astock-db`：MySQL 容器，ECS 有自带 MySQL 时无需启用，直接通过 `172.17.0.1`（Docker 桥接网关）访问宿主机数据库
+> - `astock-ollama` + `astock-ollama-init`：Ollama 容器，仅 VIP 模式需要且服务器内存 ≥ 8GB 时启用；普通用户默认走免费云端 API，无需此服务
+
+容器间通过 Docker 服务名通信（启用 Ollama 时）：
 
 ```
-MYSQL_HOST=db
-OLLAMA_BASE_URL=http://ollama:11434
+MYSQL_HOST=172.17.0.1        # 访问宿主机 MySQL
+OLLAMA_BASE_URL=http://ollama:11434  # 容器内访问 Ollama
 ```
 
 **Dockerfile 采用多阶段构建：**
@@ -115,8 +116,8 @@ OLLAMA_BASE_URL=http://ollama:11434
 | **访问入口** | `http://localhost:5173` | `http://localhost:3000` |
 | **构建产物** | 无需构建 | 需预先执行 `vite build` |
 | **NODE_ENV** | `development` | `production` |
-| **数据库地址** | `localhost` | Docker 服务名 `db` |
-| **Ollama 地址** | `http://localhost:11434` | `http://ollama:11434`（容器内） |
+| **数据库地址** | `localhost` | Docker 桥接网关 `172.17.0.1`（宿主机 MySQL）|
+| **AI 模式** | 免费模式（云端 API）/ VIP 模式（本地 Ollama）| 同左，容器内 Ollama 地址改为 `http://ollama:11434` |
 
 ---
 
@@ -132,9 +133,14 @@ OLLAMA_BASE_URL=http://ollama:11434
 | `MYSQL_HOST` | `localhost` | MySQL 地址 |
 | `MYSQL_PASSWORD` | *(必填)* | MySQL 密码 |
 | `SSE_INTERVAL_MS` | `10000` | SSE 推送间隔（毫秒） |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama 服务地址 |
-| `OLLAMA_MODEL` | `qwen2.5:3b` | 使用的 AI 模型 |
+| `OPENAI_API_BASE` | `https://open.bigmodel.cn/api/paas/v4` | 免费模式 AI 接口地址（智谱 AI）|
+| `OPENAI_API_KEY` | *(必填，免费 AI 可用)* | 免费模式 API Key |
+| `OPENAI_FREE_MODEL` | `GLM-4-Flash-250414` | 免费模式使用的模型名称 |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | VIP 模式 Ollama 服务地址 |
+| `OLLAMA_MODEL` | `qwen2.5:3b` | VIP 模式使用的 AI 模型 |
 
 > 敏感变量（`JWT_SECRET`、`MYSQL_PASSWORD`）不应写入版本库，推荐通过系统环境变量或 CI/CD Secret 注入。
+>
+> AI 双模式说明：所有新用户默认走**免费模式**（云端 OpenAI 兼容 API），执行 `node scripts/test-ai.js set-vip <用户名>` 后升级为 **VIP 模式**（本地 Ollama）。
 
 完整变量列表参见 [`.env.example`](../.env.example)。

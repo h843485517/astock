@@ -51,10 +51,10 @@ cp .env.example .env
 
 ```bash
 # 安装依赖
-npm install --omit=dev
+pnpm install --prod
 
 # 构建前端
-npm run build
+pnpm run build
 
 # 启动（生产模式自动 cluster 多核）
 NODE_ENV=production node server.js
@@ -145,7 +145,7 @@ certbot --nginx -d your-domain.com
 项目已内置 `Dockerfile` 与 `docker-compose.yml`，直接启动：
 
 ```bash
-# 构建镜像并启动所有服务（Node.js + MySQL）
+# 构建镜像并启动所有服务
 docker-compose up -d --build
 
 # 查看日志
@@ -280,6 +280,19 @@ TRUNCATE TABLE positions;
 TRUNCATE TABLE daily_snapshots;
 SET FOREIGN_KEY_CHECKS = 1;
 EXIT;
+
+-- 清空数据库的表
+-- 第一步
+mysql -u astock_user -p
+
+-- 第二步fatal: unable to access 'https://github.com/h843485517/astock.git/': Failed to connect to github.com port 443 after 129461 ms: Connection timed out
+USE astock;
+SET FOREIGN_KEY_CHECKS = 0;
+TRUNCATE TABLE users;
+TRUNCATE TABLE positions;
+TRUNCATE TABLE daily_snapshots;
+SET FOREIGN_KEY_CHECKS = 1;
+EXIT;
 ```
 
 完成后在 `.env` 中填写对应配置：
@@ -349,11 +362,14 @@ cp .env.example .env
 
 ```ini
 
-# MySQL 容器内通信，HOST 固定填 db（docker-compose 服务名）
+# MySQL 连接配置（ECS 宿主机 MySQL）
 MYSQL_USER=astock_user
 MYSQL_PASSWORD=你的强密码
 # 生成强随机密钥：openssl rand -hex 64
 JWT_SECRET=替换为64位以上随机字符串
+
+# AI 免费模式（智谱 AI，GLM-4-Flash 完全免费）
+OPENAI_API_KEY=你的智谱APIKey
 ```
 
 > ⚠️ `MYSQL_PASSWORD` 和 `JWT_SECRET` 不要使用简单字符串，生产环境务必设置强密码/密钥。
@@ -369,21 +385,21 @@ docker compose up -d --build
 
 此命令会自动完成：
 - 构建应用镜像（含前端 Vite 编译）
-- 启动 MySQL 8.0 容器，数据持久化到 Docker volume
-- 启动 Ollama 容器，并自动拉取 qwen2.5:3b 模型（首次约需几分钟，需 ECS 内存 ≥ 8G）
-- 启动应用容器，等待 MySQL 健康检查通过后自动连接
+- 启动应用容器，连接宿主机 MySQL（通过 `172.17.0.1` 访问）
+
+> **注意**：`docker-compose.yml` 中 MySQL 容器和 Ollama 容器默认已注释掉：
+> - **MySQL**：使用 ECS 宿主机自带的 MySQL，无需容器化
+> - **Ollama（VIP 模式）**：内存受限时不建议启用；普通用户默认走免费云端 API（智谱 AI），无需 Ollama
 
 查看启动状态：
 
 ```bash
 docker compose ps           # 查看各容器运行状态
 docker compose logs -f app  # 实时查看应用日志
-docker compose logs app --tail=50 # 如果日志太长，只看最后 50 行
+docker compose logs app --tail=50  # 只看最后 50 行
 ```
 
 启动成功后访问 `http://<你的公网IP>:3000`。
-
-> 若无需 AI 投资顾问功能，可在 `docker-compose.yml` 中注释掉 `ollama` 和 `ollama-init` 服务，节省内存。
 
 ---
 
@@ -426,7 +442,7 @@ systemctl start ollama
 | **换用更小的模型** | ✅ 需要 | ECS 内存 4~6G | 用 `qwen2.5:0.5b`（~500MB）或 `qwen2.5:1.5b`（~1.5GB）替代默认的 `qwen2.5:3b` |
 | **使用量化版模型** | ✅ 需要 | ECS 内存 4G | 拉取 Q4 量化版：`ollama pull qwen2.5:3b-instruct-q4_K_M`，内存降至约 2GB |
 | **本地电脑运行 Ollama** | ❌ 不需要 | ECS 内存不足，本地有空闲机器 | 在本地 Mac/Windows 运行 Ollama，将 `.env` 中 `OLLAMA_BASE_URL` 改为本地公网 IP |
-| **接入云端 LLM API** | ❌ 不需要 | 不想自托管任何模型 | 改接 DeepSeek / 通义千问等兼容 OpenAI 格式的 API，按 token 计费，无需任何本地资源 |
+| **接入云端免费 API** | ❌ 不需要 | 不想自托管任何模型（**推荐**）| 配置 `OPENAI_API_KEY` 等变量即可，普通用户默认走此模式，智谱 AI GLM-4-Flash 永久免费 |
 
 **方案一：换用小模型（仍在 ECS 安装，降低内存占用）**
 
@@ -456,18 +472,18 @@ OLLAMA_BASE_URL=http://<本地公网IP>:11434
 
 > ⚠️ 需确保本地路由器将 11434 端口转发到运行 Ollama 的机器，并在防火墙放行该端口。
 
-**方案三：接入云端 API（推荐，最省心）**
+**方案三：接入云端免费 API（推荐，最省心）**
 
-以 DeepSeek 为例，其 API 兼容 OpenAI 格式，修改 `src/services/chatService.js` 中的 baseURL 和 model 即可：
+项目已内置 OpenAI 兼容接口支持，无需修改任何代码，只需在 `.env` 中配置即可。推荐使用**智谱 AI**（`GLM-4-Flash-250414` 永久免费）：
 
 ```ini
-# .env 中配置
-OLLAMA_BASE_URL=https://api.deepseek.com/v1
-OLLAMA_MODEL=deepseek-chat
-OLLAMA_API_KEY=你的DeepSeek API Key
+# .env 中配置免费模式
+OPENAI_API_BASE=https://open.bigmodel.cn/api/paas/v4
+OPENAI_API_KEY=你的智谱APIKey         # 注册：https://open.bigmodel.cn
+OPENAI_FREE_MODEL=GLM-4-Flash-250414  # 或 GLM-Z1-Flash（推理更强）
 ```
 
-> 云端 API 按 token 计费，无需在任何服务器上安装模型，适合 ECS 内存紧张的场景。
+> 注册智谱 AI 即可免费获取 API Key，无需充值，普通用户默认走此模式，ECS 零内存占用。
 
 ---
 
