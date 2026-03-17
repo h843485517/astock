@@ -2,19 +2,30 @@
   <div class="page chat-page">
     <!-- 标题 -->
     <div class="section-header" style="margin-bottom:16px;">
-      <span class="section-title">🤖 AI 投资顾问</span>
-      <span style="font-size:12px;color:var(--text-muted);">模型：{{ modelName }}</span>
+      <span class="section-title">
+        🤖 AI 投资顾问
+        <span v-if="isVip" class="vip-badge">👑 VIP · Ollama</span>
+        <span v-else class="free-badge">🆓 免费 · {{ freeModelShort }}</span>
+      </span>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <button
+          v-if="messages.length > 0 && !streaming"
+          class="btn btn-secondary btn-sm"
+          @click="clearHistory"
+          title="清空对话记录"
+        >🗑 清空</button>
+      </div>
     </div>
 
-    <!-- AI 服务不可用：全屏占满提示 -->
-    <div v-if="ollamaDown" class="vip-fullscreen">
-      <div class="vip-fullscreen-icon">👑</div>
-      <div class="vip-fullscreen-title">VIP 专属功能</div>
-      <p class="vip-fullscreen-desc">AI 投资顾问为高级会员专属功能，当前暂未向您开放。</p>
-      <button class="btn btn-secondary vip-fullscreen-btn" @click="handleRetry">刷新重试</button>
+    <!-- AI 服务不可用（免费 API 未配置）：提示去配置 -->
+    <div v-if="aiDown" class="ai-unavailable">
+      <div class="ai-unavailable-icon">⚙️</div>
+      <div class="ai-unavailable-title">AI 服务暂不可用</div>
+      <p class="ai-unavailable-desc">{{ aiDownReason }}</p>
+      <button class="btn btn-secondary" @click="handleRetry">重试</button>
     </div>
 
-    <!-- 正常聊天界面（ollamaDown 时完全隐藏） -->
+    <!-- 正常聊天界面 -->
     <template v-else>
     <div class="info-card" style="margin-bottom:16px;">
       <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">
@@ -60,7 +71,7 @@
 
         <!-- AI 消息 -->
         <div v-else class="msg-row msg-assistant">
-          <div class="msg-avatar">🤖</div>
+          <div class="msg-avatar">{{ isVip ? '👑' : '🤖' }}</div>
           <div class="msg-bubble msg-bubble-ai">
             <span class="msg-text" v-html="renderText(msg.content)"></span>
             <span v-if="msg.streaming" class="cursor-blink">▋</span>
@@ -102,10 +113,18 @@
 </template>
 
 <script setup>
-import { ref, nextTick, onMounted, onUnmounted } from 'vue';
+import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue';
 import * as api from '../api.js';
 
-const modelName = ref(import.meta.env.VITE_OLLAMA_MODEL || 'qwen2.5:3b');
+const STORAGE_KEY = 'astock_chat_history';
+const MAX_STORED_MSGS = 40;
+
+const isVip           = ref(false);
+const freeModelShort  = computed(() => {
+  const m = import.meta.env.VITE_FREE_MODEL || 'Qwen2.5-7B';
+  // 只取最后一段，如 Qwen/Qwen2.5-7B-Instruct → Qwen2.5-7B-Instruct
+  return m.includes('/') ? m.split('/').pop() : m;
+});
 
 const allPositions    = ref([]);
 const loadingPositions = ref(true);
@@ -113,7 +132,8 @@ const selectedCodes   = ref([]);
 const messages        = ref([]);
 const inputText       = ref('');
 const streaming       = ref(false);
-const ollamaDown      = ref(false);
+const aiDown          = ref(false);
+const aiDownReason    = ref('');
 const messagesEl      = ref(null);
 
 let currentEs = null;
@@ -125,12 +145,47 @@ const suggestions = [
   '给我一些分散投资风险的建议',
 ];
 
-onMounted(async () => {
+// ── 本地持久化 ────────────────────────────────────────────────
+function saveHistory() {
   try {
-    const res = await api.getPositions();
-    allPositions.value = res.data || [];
+    // 只保存已完成的消息（不保存 streaming 中间态）
+    const toSave = messages.value
+      .filter(m => !m.streaming)
+      .slice(-MAX_STORED_MSGS);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+  } catch (_) {}
+}
+
+function loadHistory() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        messages.value = parsed;
+      }
+    }
+  } catch (_) {}
+}
+
+function clearHistory() {
+  messages.value = [];
+  localStorage.removeItem(STORAGE_KEY);
+  window.showToast('对话记录已清除', 'success');
+}
+
+onMounted(async () => {
+  loadHistory();
+  try {
+    const res = await api.getMe();
+    isVip.value = !!(res.data?.isVip);
+    allPositions.value = (await api.getPositions()).data || [];
   } catch (_) {}
   loadingPositions.value = false;
+  if (messages.value.length > 0) {
+    await nextTick();
+    scrollToBottom(true);
+  }
 });
 
 onUnmounted(() => {
@@ -149,7 +204,8 @@ function fillSuggestion(text) {
 
 function handleRetry() {
   messages.value = [];
-  ollamaDown.value = false;
+  aiDown.value = false;
+  aiDownReason.value = '';
 }
 
 const SCROLL_THRESHOLD = 80; // px
@@ -176,6 +232,7 @@ function stopStreaming() {
     last.streaming = false;
   }
   streaming.value = false;
+  saveHistory();
 }
 
 // 将换行转为 <br>，简单转义 XSS
@@ -202,10 +259,22 @@ async function sendMessage() {
   // 通过响应式数组索引访问，确保 Vue 3 proxy 能追踪到属性变更并触发视图更新
   const aiMsgIndex = messages.value.length - 1;
   streaming.value = true;
-  ollamaDown.value = false;
+  aiDown.value = false;
+  aiDownReason.value = '';
 
   const codes = selectedCodes.value.join(',');
-  const url   = `/api/chat/stream1?message=${encodeURIComponent(msg)}${codes ? '&codes=' + encodeURIComponent(codes) : ''}`;
+
+  // 收集历史消息（排除当前正在流式输出的消息），传给后端以支持多轮对话
+  const history = messages.value
+    .slice(0, -1) // 去掉最后那条空的 assistant 消息
+    .filter(m => !m.streaming && m.content)
+    .map(m => ({ role: m.role, content: m.content }));
+
+  const historyParam = history.length > 0
+    ? '&history=' + encodeURIComponent(JSON.stringify(history))
+    : '';
+
+  const url = `/api/chat/stream?message=${encodeURIComponent(msg)}${codes ? '&codes=' + encodeURIComponent(codes) : ''}${historyParam}`;
 
   currentEs = new EventSource(url, { withCredentials: true });
 
@@ -215,25 +284,39 @@ async function sendMessage() {
       streaming.value = false;
       currentEs.close();
       currentEs = null;
+      saveHistory(); // 每次 AI 回复完成后持久化
       await scrollToBottom(true);
       return;
     }
     try {
       const obj = JSON.parse(e.data);
-      if (obj.error === 'OLLAMA_NOT_AVAILABLE') {
-        messages.value = [];
-        streaming.value  = false;
-        ollamaDown.value = true;
-        currentEs.close();
-        currentEs = null;
-        return;
-      }
       if (obj.error) {
-        messages.value = [];
-        streaming.value  = false;
-        ollamaDown.value = true;
+        messages.value[aiMsgIndex].streaming = false;
+        streaming.value = false;
         currentEs.close();
         currentEs = null;
+
+        // 根据错误类型给出不同提示
+        if (obj.error === 'OLLAMA_NOT_AVAILABLE') {
+          // VIP 用户：Ollama 未启动
+          messages.value[aiMsgIndex].content = '⚠️ VIP 高级 AI（Ollama）当前不可用，请联系管理员检查服务。';
+          messages.value[aiMsgIndex].streaming = false;
+        } else if (obj.error === 'FREE_API_NO_KEY') {
+          // 免费用户：未配置 API Key
+          messages.value = messages.value.slice(0, -1); // 移除空 AI 消息
+          aiDown.value = true;
+          aiDownReason.value = '免费 AI 服务尚未配置 API Key，请联系管理员完成配置后再使用。';
+        } else if (obj.error === 'FREE_API_AUTH_FAIL') {
+          messages.value = messages.value.slice(0, -1);
+          aiDown.value = true;
+          aiDownReason.value = '免费 AI 服务 API Key 无效或已过期，请联系管理员更新。';
+        } else if (obj.error === 'FREE_API_UNAVAILABLE') {
+          messages.value[aiMsgIndex].content = '⚠️ 免费 AI 服务暂时不可用（网络超时），请稍后重试。';
+          messages.value[aiMsgIndex].streaming = false;
+        } else {
+          messages.value[aiMsgIndex].content = `⚠️ AI 服务出现错误：${obj.message || '请稍后重试'}`;
+          messages.value[aiMsgIndex].streaming = false;
+        }
         return;
       }
       if (obj.token) {
@@ -246,11 +329,11 @@ async function sendMessage() {
   currentEs.onerror = () => {
     if (streaming.value) {
       const cur = messages.value[aiMsgIndex];
-      // 若尚无任何内容则视为服务不可用，触发 VIP 提示
+      // 若尚无任何内容则视为服务不可用
       if (!cur.content) {
-        cur.streaming    = false;
-        streaming.value  = false;
-        ollamaDown.value = true;
+        cur.content   = '⚠️ 连接 AI 服务失败，请检查网络或稍后重试。';
+        cur.streaming = false;
+        streaming.value = false;
       } else {
         cur.content  += '\n\n[连接中断]';
         cur.streaming = false;

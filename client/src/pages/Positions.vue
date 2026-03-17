@@ -6,7 +6,20 @@
         <span v-if="loading" class="loading-spinner" style="margin-left:8px;"></span>
         <span v-if="sseActive" class="badge-sse">实时</span>
       </span>
-      <div style="display:flex;gap:8px;">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <!-- 搜索框 -->
+        <div class="search-wrap">
+          <span class="search-icon">🔍</span>
+          <input
+            v-model="searchKeyword"
+            class="search-input"
+            type="text"
+            placeholder="搜索名称或代码..."
+            maxlength="20"
+            @keydown.escape="searchKeyword = ''"
+          />
+          <button v-if="searchKeyword" class="search-clear" @click="searchKeyword = ''" title="清空">✕</button>
+        </div>
         <button class="btn btn-secondary" @click="manualRefresh">🔄 刷新</button>
         <router-link to="/add" class="btn btn-primary">+ 添加持仓</router-link>
       </div>
@@ -27,8 +40,10 @@
     <div v-else-if="!loading && grouped.size === 0 && tabs.length <= 1" class="table-wrap">
       <div class="empty-state">
         <div class="empty-icon">📋</div>
-        <p>还没有任何持仓记录</p>
-        <router-link to="/add" class="btn btn-primary">添加第一笔持仓</router-link>
+        <p v-if="searchKeyword">未找到匹配「{{ searchKeyword }}」的持仓</p>
+        <p v-else>还没有任何持仓记录</p>
+        <button v-if="searchKeyword" class="btn btn-secondary" @click="searchKeyword = ''">清空搜索</button>
+        <router-link v-else to="/add" class="btn btn-primary">添加第一笔持仓</router-link>
       </div>
     </div>
 
@@ -66,11 +81,24 @@
             <table>
               <thead>
                 <tr><th colspan="7" style="text-align:left;padding:8px 16px;font-size:12px;color:var(--text-muted);">📁 {{ group }} <span style="margin-left:8px;font-weight:normal;">{{ rows.length }} 只</span></th></tr>
-                <tr><th>名称</th><th>持仓总金额</th><th>当日估算净值</th><th>当日收益</th><th>持有收益</th><th>操作</th></tr>
+                <tr>
+                  <th>名称</th>
+                  <th class="th-sort" @click="toggleSort('totalAsset')">持仓总金额<span class="sort-icon">{{ sortKey==='totalAsset' ? (sortAsc?'↑':'↓') : '⇅' }}</span></th>
+                  <th class="th-sort" @click="toggleSort('change_pct')">当日净值<span class="sort-icon">{{ sortKey==='change_pct' ? (sortAsc?'↑':'↓') : '⇅' }}</span></th>
+                  <th class="th-sort" @click="toggleSort('todayProfit')">当日收益<span class="sort-icon">{{ sortKey==='todayProfit' ? (sortAsc?'↑':'↓') : '⇅' }}</span></th>
+                  <th class="th-sort" @click="toggleSort('profit')">持有收益<span class="sort-icon">{{ sortKey==='profit' ? (sortAsc?'↑':'↓') : '⇅' }}</span></th>
+                  <th>操作</th>
+                </tr>
               </thead>
               <tbody>
-                <tr v-for="row in rows" :key="row.id">
-                  <td class="td-name">{{ row.name || '--' }}</td>
+                <tr v-for="row in rows" :key="row.id" :class="{ 'row-alert-stop': row.hitStopLoss, 'row-alert-target': row.hitTakeProfit }">
+                  <td class="td-name">
+                    {{ row.name || '--' }}
+                    <span v-if="row.hitStopLoss"   class="alert-badge alert-stop">🛑 止损</span>
+                    <span v-if="row.hitTakeProfit"  class="alert-badge alert-target">🎯 目标</span>
+                    <span v-if="row.stop_loss != null && !row.hitStopLoss"   class="price-hint">止损 {{ fmtNum(row.stop_loss, 3) }}</span>
+                    <span v-if="row.take_profit != null && !row.hitTakeProfit" class="price-hint">目标 {{ fmtNum(row.take_profit, 3) }}</span>
+                  </td>
                   <td data-label="持仓总金额">{{ row.current ? fmtPrivate(row.current * row.shares, v => '¥' + fmtNum(v)) : '--' }}</td>
                   <td data-label="当日净值" :class="colorClass(row.change_pct)">
                     <div class="td-value-wrap">
@@ -103,11 +131,24 @@
         <div class="table-wrap">
           <table>
             <thead>
-              <tr><th>名称</th><th>持仓总金额</th><th>当日估算净值</th><th>当日收益</th><th>持有收益</th><th>操作</th></tr>
+              <tr>
+                <th>名称</th>
+                <th class="th-sort" @click="toggleSort('totalAsset')">持仓总金额<span class="sort-icon">{{ sortKey==='totalAsset' ? (sortAsc?'↑':'↓') : '⇅' }}</span></th>
+                <th class="th-sort" @click="toggleSort('change_pct')">当日净值<span class="sort-icon">{{ sortKey==='change_pct' ? (sortAsc?'↑':'↓') : '⇅' }}</span></th>
+                <th class="th-sort" @click="toggleSort('todayProfit')">当日收益<span class="sort-icon">{{ sortKey==='todayProfit' ? (sortAsc?'↑':'↓') : '⇅' }}</span></th>
+                <th class="th-sort" @click="toggleSort('profit')">持有收益<span class="sort-icon">{{ sortKey==='profit' ? (sortAsc?'↑':'↓') : '⇅' }}</span></th>
+                <th>操作</th>
+              </tr>
             </thead>
             <tbody>
-              <tr v-for="row in currentRows" :key="row.id">
-                <td class="td-name">{{ row.name || '--' }}</td>
+              <tr v-for="row in currentRows" :key="row.id" :class="{ 'row-alert-stop': row.hitStopLoss, 'row-alert-target': row.hitTakeProfit }">
+                <td class="td-name">
+                  {{ row.name || '--' }}
+                  <span v-if="row.hitStopLoss"   class="alert-badge alert-stop">🛑 止损</span>
+                  <span v-if="row.hitTakeProfit"  class="alert-badge alert-target">🎯 目标</span>
+                  <span v-if="row.stop_loss != null && !row.hitStopLoss"   class="price-hint">止损 {{ fmtNum(row.stop_loss, 3) }}</span>
+                  <span v-if="row.take_profit != null && !row.hitTakeProfit" class="price-hint">目标 {{ fmtNum(row.take_profit, 3) }}</span>
+                </td>
                 <td data-label="持仓总金额">{{ row.current ? fmtPrivate(row.current * row.shares, v => '¥' + fmtNum(v)) : '--' }}</td>
                 <td data-label="当日净值" :class="colorClass(row.change_pct)">
                   <div class="td-value-wrap">
@@ -196,6 +237,32 @@
                 style="margin-top:8px;"
               />
             </div>
+
+            <!-- 止损/目标价 -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+              <div class="edit-field">
+                <label class="edit-label">🛑 止损价 <span style="color:var(--text-muted);font-weight:normal;">(可选)</span></label>
+                <input
+                  v-model="editForm.stop_loss"
+                  class="edit-input"
+                  type="number"
+                  min="0"
+                  step="0.001"
+                  placeholder="触发低于此价提醒"
+                />
+              </div>
+              <div class="edit-field">
+                <label class="edit-label">🎯 目标价 <span style="color:var(--text-muted);font-weight:normal;">(可选)</span></label>
+                <input
+                  v-model="editForm.take_profit"
+                  class="edit-input"
+                  type="number"
+                  min="0"
+                  step="0.001"
+                  placeholder="触发高于此价提醒"
+                />
+              </div>
+            </div>
           </div>
 
           <div class="modal-footer">
@@ -214,21 +281,22 @@
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import * as api from '../api.js';
-import { usePrivacy } from '../composables/usePrivacy.js';
+import { useFormat } from '../composables/useFormat.js';
 
-const { privacyMode } = usePrivacy();
+const { fmtNum, fmtMoney, fmtPct, fmtPrivate, colorClass } = useFormat();
 
 const positions = ref([]);
 const quotes    = ref({});
 const loading   = ref(true);
 const sseActive = ref(false);
 const activeTab = ref('全部');
+const searchKeyword = ref('');
 
 let posEsSource = null;
 
 // ── 编辑弹窗状态 ─────────────────────────────────────────────
 const editModal     = reactive({ show: false, id: null, name: '', code: '', type: '' });
-const editForm      = reactive({ shares: '', cost_price: '', group_name: '', newGroupInput: '' });
+const editForm      = reactive({ shares: '', cost_price: '', group_name: '', newGroupInput: '', stop_loss: '', take_profit: '' });
 const editErrors    = reactive({});
 const editSaving    = ref(false);
 const editGroupList = ref([]);
@@ -242,6 +310,8 @@ function openEdit(row) {
   editForm.shares        = row.shares;
   editForm.cost_price    = row.cost_price;
   editForm.newGroupInput = '';
+  editForm.stop_loss     = row.stop_loss  != null ? row.stop_loss  : '';
+  editForm.take_profit   = row.take_profit != null ? row.take_profit : '';
   const groups = [...new Set(positions.value.map(p => p.group_name).filter(Boolean))];
   editGroupList.value = groups;
   editForm.group_name = groups.includes(row.group_name) ? row.group_name : (row.group_name || '');
@@ -270,18 +340,22 @@ async function saveEdit() {
   editSaving.value = true;
   try {
     await api.updatePosition(editModal.id, {
-      shares:     Number(editForm.shares),
-      cost_price: Number(editForm.cost_price),
-      group_name: resolvedGroup,
+      shares:      Number(editForm.shares),
+      cost_price:  Number(editForm.cost_price),
+      group_name:  resolvedGroup,
+      stop_loss:   editForm.stop_loss  !== '' ? Number(editForm.stop_loss)  : null,
+      take_profit: editForm.take_profit !== '' ? Number(editForm.take_profit) : null,
     });
     // 本地更新，不等 SSE 推送
     const idx = positions.value.findIndex(p => p.id === editModal.id);
     if (idx >= 0) {
       positions.value[idx] = {
         ...positions.value[idx],
-        shares:     Number(editForm.shares),
-        cost_price: Number(editForm.cost_price),
-        group_name: resolvedGroup,
+        shares:      Number(editForm.shares),
+        cost_price:  Number(editForm.cost_price),
+        group_name:  resolvedGroup,
+        stop_loss:   editForm.stop_loss  !== '' ? Number(editForm.stop_loss)  : null,
+        take_profit: editForm.take_profit !== '' ? Number(editForm.take_profit) : null,
       };
     }
     window.showToast('持仓已更新', 'success');
@@ -294,6 +368,26 @@ async function saveEdit() {
 }
 
 // ── 持仓 SSE ─────────────────────────────────────────────────
+// 已触发提醒的 id 集合，防止每次推送都重复 Toast
+const alertedStop   = new Set();
+const alertedTarget = new Set();
+
+function checkAlerts(rows) {
+  for (const r of rows) {
+    if (r.hitStopLoss && !alertedStop.has(r.id)) {
+      alertedStop.add(r.id);
+      window.showToast(`🛑 止损提醒：${r.name || r.code} 当前价 ${r.current} 已触及止损价 ${r.stop_loss}`, 'error', 6000);
+    }
+    if (r.hitTakeProfit && !alertedTarget.has(r.id)) {
+      alertedTarget.add(r.id);
+      window.showToast(`🎯 目标提醒：${r.name || r.code} 当前价 ${r.current} 已触及目标价 ${r.take_profit}`, 'success', 6000);
+    }
+    // 解除触发状态时清除记录，允许再次提醒
+    if (!r.hitStopLoss)   alertedStop.delete(r.id);
+    if (!r.hitTakeProfit) alertedTarget.delete(r.id);
+  }
+}
+
 function connectPositionSSE() {
   posEsSource = new EventSource('/api/positions/stream', { withCredentials: true });
   posEsSource.onmessage = (e) => {
@@ -302,6 +396,8 @@ function connectPositionSSE() {
       if (payload.code === 0) {
         positions.value = payload.positions || [];
         quotes.value    = payload.quotes    || {};
+        // 每次 SSE 推送后检查止损/目标价
+        checkAlerts(enriched.value);
       }
       loading.value   = false;
       sseActive.value = true;
@@ -344,21 +440,61 @@ async function manualRefresh() {
 const enriched = computed(() => positions.value.map(pos => {
   const q = quotes.value[pos.code] || {};
   const current = q.current || 0, change_pct = q.change_pct || 0, close = q.close || 0;
+  const stopLoss   = pos.stop_loss   != null ? Number(pos.stop_loss)   : null;
+  const takeProfit = pos.take_profit != null ? Number(pos.take_profit) : null;
   return {
     ...pos, current, change_pct, close,
     todayProfit: (current - close) * pos.shares,
     profit:      (current - pos.cost_price) * pos.shares,
     profitPct:   pos.cost_price > 0 ? (current - pos.cost_price) / pos.cost_price * 100 : 0,
+    // 止损/目标价触发状态
+    hitStopLoss:   current > 0 && stopLoss   != null && current <= stopLoss,
+    hitTakeProfit: current > 0 && takeProfit != null && current >= takeProfit,
   };
 }));
 
 const tabs = computed(() => ['全部', ...[...new Set(positions.value.map(p => p.group_name || '默认分组'))]]);
 
-const currentRows = computed(() =>
-  activeTab.value === '全部'
+// ── 排序状态 ──────────────────────────────────────────────────
+// sortKey: 'default' | 'totalAsset' | 'change_pct' | 'todayProfit' | 'profit'
+const sortKey = ref('default');
+const sortAsc = ref(false);
+
+function toggleSort(key) {
+  if (sortKey.value === key) {
+    sortAsc.value = !sortAsc.value;
+  } else {
+    sortKey.value = key;
+    sortAsc.value = false; // 切换新列默认降序
+  }
+}
+
+function sortedRows(rows) {
+  if (sortKey.value === 'default') return rows;
+  return [...rows].sort((a, b) => {
+    let va, vb;
+    if (sortKey.value === 'totalAsset') {
+      va = a.current * a.shares; vb = b.current * b.shares;
+    } else {
+      va = a[sortKey.value] ?? 0; vb = b[sortKey.value] ?? 0;
+    }
+    return sortAsc.value ? va - vb : vb - va;
+  });
+}
+
+const currentRows = computed(() => {
+  const kw = searchKeyword.value.trim().toLowerCase();
+  const tabRows = activeTab.value === '全部'
     ? enriched.value
-    : enriched.value.filter(p => (p.group_name || '默认分组') === activeTab.value)
-);
+    : enriched.value.filter(p => (p.group_name || '默认分组') === activeTab.value);
+  const filtered = kw
+    ? tabRows.filter(p =>
+        (p.name || '').toLowerCase().includes(kw) ||
+        (p.code || '').toLowerCase().includes(kw)
+      )
+    : tabRows;
+  return sortedRows(filtered);
+});
 
 const tabSummary = computed(() => {
   let totalAsset = 0, totalCost = 0, todayProfit = 0;
@@ -392,18 +528,104 @@ async function handleDelete(pos) {
   }
 }
 
-// ── 格式化 ────────────────────────────────────────────────────
-const colorClass = (v) => v > 0 ? 'rise' : v < 0 ? 'fall' : 'flat';
-const fmtNum     = (v, d = 2) => (v || v === 0) ? v.toLocaleString('zh-CN', { minimumFractionDigits: d, maximumFractionDigits: d }) : '--';
-const fmtMoney   = (v) => `${v >= 0 ? '+' : ''}¥${Math.abs(v).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const fmtPct     = (v) => `${v > 0 ? '+' : ''}${v.toFixed(2)}%`;
-const fmtPrivate = (v, fmt) => privacyMode.value ? '****' : fmt(v);
+// ── 格式化（由 useFormat composable 提供）────────────────────
 
 onMounted(connectPositionSSE);
 onUnmounted(() => { if (posEsSource) posEsSource.close(); });
 </script>
 
 <style scoped>
+/* ── 搜索框 ── */
+.search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 180px;
+}
+.search-icon {
+  position: absolute;
+  left: 10px;
+  font-size: 13px;
+  pointer-events: none;
+  opacity: 0.6;
+}
+.search-input {
+  width: 100%;
+  padding: 7px 30px 7px 30px;
+  background: var(--bg-input);
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.search-input:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(37,99,235,0.10);
+}
+.search-input::placeholder { color: var(--text-muted); }
+.search-clear {
+  position: absolute;
+  right: 8px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+  font-family: inherit;
+}
+.search-clear:hover { color: var(--text-primary); background: var(--bg-card-hv); }
+
+/* ── 止损/目标价提醒样式 ── */
+.alert-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: 5px;
+  vertical-align: middle;
+  animation: pulse-alert 1.5s ease-in-out infinite;
+}
+.alert-stop   { background: rgba(224,53,53,0.12); color: var(--color-rise); border: 1px solid rgba(224,53,53,0.3); }
+.alert-target { background: rgba(13,158,110,0.12); color: var(--color-fall); border: 1px solid rgba(13,158,110,0.3); }
+.price-hint {
+  display: inline-block;
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-left: 6px;
+  vertical-align: middle;
+  font-weight: 400;
+}
+@keyframes pulse-alert {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.55; }
+}
+.row-alert-stop   { background: rgba(224,53,53,0.04) !important; }
+.row-alert-target { background: rgba(13,158,110,0.05) !important; }
+
+/* ── 可排序表头 ── */
+.th-sort {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  transition: color 0.15s;
+}
+.th-sort:hover { color: var(--color-primary); }
+.sort-icon {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 11px;
+  opacity: 0.6;
+  font-style: normal;
+}
+.th-sort:hover .sort-icon { opacity: 1; color: var(--color-primary); }
+
 /* 弹窗遮罩 */
 .modal-mask {
   position: fixed;

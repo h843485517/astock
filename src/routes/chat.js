@@ -7,27 +7,23 @@ const { requireAuth }                        = require('../middleware/auth');
 const { fetchStockHistory, buildContext, streamChat } = require('../services/chatService');
 const { normalizeStockCode }                 = require('../services/quoteService');
 
-const MAX_MESSAGE_LEN = 500;
+const MAX_MESSAGE_LEN   = 500;
+const MAX_HISTORY_TURNS = 10;
 
 const ok   = (res, data)                  => res.json({ code: 0, data });
 const fail = (res, message, status = 400) => res.status(status).json({ code: 1, message });
 
 // GET /api/chat/stream?message=...&codes=sh600519,000001
-// SSE 流式 AI 回复，需登录
 router.get('/stream', requireAuth, async (req, res) => {
-  let { message, codes } = req.query;
+  let { message, codes, history: historyRaw } = req.query;
 
   if (!message || !message.trim()) {
     return fail(res, '请输入问题');
   }
-
-  // 截断超长消息
   if (message.length > MAX_MESSAGE_LEN) {
     message = message.slice(0, MAX_MESSAGE_LEN);
   }
 
-  // 设置 SSE 响应头；Content-Encoding: identity 显式禁用 gzip/deflate，
-  // 防止 compression 中间件缓冲数据导致流式内容无法实时输出
   res.setHeader('Content-Type',      'text/event-stream');
   res.setHeader('Cache-Control',     'no-cache');
   res.setHeader('Connection',        'keep-alive');
@@ -35,10 +31,7 @@ router.get('/stream', requireAuth, async (req, res) => {
   res.setHeader('Content-Encoding',  'identity');
   res.flushHeaders();
 
-  // 禁用 TCP Nagle 算法，确保每个 token 立即发出，不被内核攒包延迟
-  if (res.socket) {
-    res.socket.setNoDelay(true);
-  }
+  if (res.socket) res.socket.setNoDelay(true);
 
   function sseWrite(str) {
     res.write(str);
@@ -46,10 +39,14 @@ router.get('/stream', requireAuth, async (req, res) => {
   }
 
   try {
-    const userId   = req.user.id;
+    const userId = req.user.id;
+
+    // 查询用户 VIP 状态
+    const userInfo = await db.getUserById(userId);
+    const isVip    = !!(userInfo && userInfo.is_vip);
+
     const positions = await db.getAllPositions(userId);
 
-    // 获取持仓行情（从 positions 路由中的 buildPositionPayload 复用逻辑）
     const { fetchStockQuote, fetchFundQuote } = require('../services/quoteService');
     const stockCodes = positions.filter(p => p.type === 'stock').map(p => p.code);
     const fundCodes  = positions.filter(p => p.type === 'fund').map(p => p.code);
@@ -72,7 +69,6 @@ router.get('/stream', requireAuth, async (req, res) => {
       } catch (_) {}
     }
 
-    // 拉取用户选中标的的历史行情
     const historiesMap = {};
     const selectedCodes = (codes && codes.trim())
       ? codes.split(',').map(c => c.trim()).filter(Boolean).map(c => normalizeStockCode(c))
@@ -87,13 +83,27 @@ router.get('/stream', requireAuth, async (req, res) => {
       );
     }
 
-    // 若前端传入了 codes，则只将选中的标的纳入 AI 上下文；未选时沿用全量持仓
     const filteredPositions = selectedCodes.length > 0
       ? positions.filter(p => selectedCodes.includes(normalizeStockCode(p.code)))
       : positions;
 
     const context = buildContext(filteredPositions, quotes, historiesMap);
-    await streamChat(message.trim(), context, res);
+
+    let history = [];
+    if (historyRaw) {
+      try {
+        const parsed = JSON.parse(historyRaw);
+        if (Array.isArray(parsed)) {
+          history = parsed
+            .filter(m => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+            .map(m => ({ role: m.role, content: m.content.slice(0, 1000) }))
+            .slice(-MAX_HISTORY_TURNS * 2);
+        }
+      } catch (_) {}
+    }
+
+    // 透传 isVip 给 chatService，由其路由到 Ollama 或免费 API
+    await streamChat(message.trim(), context, res, history, isVip);
 
   } catch (err) {
     console.error('[ChatRoute] stream error:', err.message);
@@ -103,7 +113,6 @@ router.get('/stream', requireAuth, async (req, res) => {
 });
 
 // GET /api/chat/history-quote?code=sh600519
-// 获取指定标的近 30 日历史行情
 router.get('/history-quote', requireAuth, async (req, res) => {
   const { code } = req.query;
   if (!code) return fail(res, '缺少 code 参数');

@@ -177,9 +177,9 @@
 <script setup>
 import { ref, computed, reactive, onMounted, watch } from 'vue';
 import * as api from '../api.js';
-import { usePrivacy } from '../composables/usePrivacy.js';
+import { useFormat } from '../composables/useFormat.js';
 
-const { privacyMode } = usePrivacy();
+const { fmtNum, fmtMoney, fmtMoneyCompact, fmtPct, fmtPrivate, colorClass } = useFormat();
 
 // ── 状态 ─────────────────────────────────────────────────────
 const loading       = ref(false);
@@ -285,16 +285,7 @@ function selectDay(day) {
   detail.show    = true;
 }
 
-// ── 格式化 ───────────────────────────────────────────────────
-const colorClass      = (v) => Number(v) > 0 ? 'rise' : Number(v) < 0 ? 'fall' : 'flat';
-const fmtNum          = (v, d=2) => Number(v).toLocaleString('zh-CN', { minimumFractionDigits: d, maximumFractionDigits: d });
-const fmtMoney        = (v) => `${v >= 0 ? '+' : ''}¥${Math.abs(v).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const fmtMoneyCompact = (v) => {
-  const abs = Math.abs(v), sign = v >= 0 ? '+' : '-';
-  return abs >= 10000 ? `${sign}¥${(abs/10000).toFixed(1)}万` : `${sign}¥${abs.toFixed(0)}`;
-};
-const fmtPct     = (v) => `${Number(v) > 0 ? '+' : ''}${Number(v).toFixed(2)}%`;
-const fmtPrivate = (v, fmt) => privacyMode.value ? '****' : fmt(Number(v));
+// ── 格式化（由 useFormat composable 提供）────────────────────
 
 // ── 生命周期 ─────────────────────────────────────────────────
 watch([currentYear, currentMonth], loadSnapshots);

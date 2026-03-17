@@ -25,10 +25,18 @@ async function initDatabase() {
         id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
         username        VARCHAR(30)  NOT NULL UNIQUE,
         password_hash   VARCHAR(100) NOT NULL,
+        is_vip          TINYINT(1)   NOT NULL DEFAULT 0,
         created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
         last_login_at   DATETIME     NULL
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
+
+    // 存量数据兼容：若 users 表已存在但缺少 is_vip 列，则动态添加
+    try {
+      await pool.execute(`ALTER TABLE users ADD COLUMN is_vip TINYINT(1) NOT NULL DEFAULT 0`);
+    } catch (e) {
+      if (e.errno !== 1060) console.warn('[DB] ALTER users 字段警告:', e.message);
+    }
 
     // 持仓表（含 user_id）
     await pool.execute(`
@@ -41,6 +49,8 @@ async function initDatabase() {
         shares      DECIMAL(18,4)        NOT NULL,
         cost_price  DECIMAL(18,4)        NOT NULL,
         group_name  VARCHAR(30)          NOT NULL DEFAULT '',
+        stop_loss   DECIMAL(18,4)        NULL DEFAULT NULL,
+        take_profit DECIMAL(18,4)        NULL DEFAULT NULL,
         created_at  DATETIME             NOT NULL DEFAULT CURRENT_TIMESTAMP,
         INDEX idx_user_id (user_id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
@@ -54,6 +64,16 @@ async function initDatabase() {
       // 列已存在（1060）或索引已存在（1061）时忽略
       if (alterErr.errno !== 1060 && alterErr.errno !== 1061) {
         console.warn('[DB] ALTER TABLE positions 警告:', alterErr.message);
+      }
+    }
+
+    // 存量数据兼容：添加止损/目标价字段
+    for (const col of [
+      'ALTER TABLE positions ADD COLUMN stop_loss   DECIMAL(18,4) NULL DEFAULT NULL',
+      'ALTER TABLE positions ADD COLUMN take_profit DECIMAL(18,4) NULL DEFAULT NULL',
+    ]) {
+      try { await pool.execute(col); } catch (e) {
+        if (e.errno !== 1060) console.warn('[DB] ALTER positions 字段警告:', e.message);
       }
     }
 
@@ -151,7 +171,7 @@ async function createPosition(data) {
 }
 
 // 字段名白名单，防止原型链污染
-const ALLOWED_UPDATE_FIELDS = Object.freeze(['name', 'shares', 'cost_price', 'group_name']);
+const ALLOWED_UPDATE_FIELDS = Object.freeze(['name', 'shares', 'cost_price', 'group_name', 'stop_loss', 'take_profit']);
 
 /**
  * 更新持仓（支持部分字段更新，强制校验 user_id 防越权）
@@ -279,6 +299,30 @@ async function getSnapshotByDate(userId, date) {
   return rows[0];
 }
 
+/**
+ * 按 ID 查找用户（含 is_vip 字段）
+ * @param {number} id
+ */
+async function getUserById(id) {
+  const [rows] = await pool.execute(
+    'SELECT id, username, is_vip, created_at, last_login_at FROM users WHERE id = ? LIMIT 1',
+    [id]
+  );
+  return rows[0];
+}
+
+/**
+ * 设置用户 VIP 状态（管理员操作）
+ * @param {number}  id
+ * @param {boolean} isVip
+ */
+async function setUserVip(id, isVip) {
+  await pool.execute(
+    'UPDATE users SET is_vip = ? WHERE id = ?',
+    [isVip ? 1 : 0, id]
+  );
+}
+
 module.exports = {
   pool,
   initDatabase,
@@ -286,6 +330,8 @@ module.exports = {
   createUser,
   findUserByUsername,
   updateLastLogin,
+  getUserById,
+  setUserVip,
   // 持仓相关
   getAllPositions,
   createPosition,

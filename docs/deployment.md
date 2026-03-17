@@ -272,7 +272,7 @@ EXIT;
 -- 第一步
 mysql -u astock_user -p
 
--- 第二步
+-- 第二步fatal: unable to access 'https://github.com/h843485517/astock.git/': Failed to connect to github.com port 443 after 129461 ms: Connection timed out
 USE astock;
 SET FOREIGN_KEY_CHECKS = 0;
 TRUNCATE TABLE users;

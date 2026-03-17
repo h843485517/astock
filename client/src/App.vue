@@ -12,6 +12,13 @@
         <router-link to="/chat">投资顾问</router-link>
       </div>
       <div class="nav-right">
+        <!-- 主题切换按钮（直接显示在导航栏，快速切换） -->
+        <button
+          class="btn-icon theme-btn"
+          @click="toggleDark"
+          :title="darkMode ? '切换到浅色模式' : '切换到深色模式'"
+        >{{ darkMode ? '☀️' : '🌙' }}</button>
+
         <!-- 隐藏金额：直接显示在导航栏 -->
         <button
           class="btn-icon privacy-btn"
@@ -36,15 +43,6 @@
                   <div class="dropdown-role">普通用户</div>
                 </div>
               </div>
-              <div class="dropdown-divider"></div>
-
-              <!-- 暗黑模式 -->
-              <button class="dropdown-item" @click="toggleDark">
-                <span class="di-icon">{{ darkMode ? '🌙' : '☀️' }}</span>
-                <span>{{ darkMode ? '深色模式' : '浅色模式' }}</span>
-                <span class="di-badge" :class="darkMode ? 'badge-on' : 'badge-off'">{{ darkMode ? '已开启' : '已关闭' }}</span>
-              </button>
-
               <div class="dropdown-divider"></div>
 
               <!-- 修改密码 -->
@@ -259,6 +257,13 @@ window.showToast = function (message, type = 'info', duration = 3000) {
 </script>
 
 <style scoped>
+/* 主题切换按钮 */
+.theme-btn {
+  font-size: 18px;
+  transition: transform 0.3s ease, background 0.15s;
+}
+.theme-btn:hover { transform: rotate(20deg) scale(1.1); }
+
 /* 用户菜单触发器 */
 .user-menu { position: relative; }
 .user-avatar-btn {

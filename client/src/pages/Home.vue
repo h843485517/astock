@@ -102,9 +102,9 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import MarketIndex from '../components/MarketIndex.vue';
 import * as api from '../api.js';
-import { usePrivacy } from '../composables/usePrivacy.js';
+import { useFormat } from '../composables/useFormat.js';
 
-const { privacyMode } = usePrivacy();
+const { fmtNum, fmtMoney, fmtPct, fmtPrivate, colorClass } = useFormat();
 
 const indices      = ref({});
 const positions    = ref([]);
@@ -138,8 +138,14 @@ async function loadPrevDayAsset() {
   }
 }
 
-// ── 大盘 SSE（失败时降级为轮询）──────────────────────────────
+// ── 大盘 SSE（断线指数退避重连，最终降级为轮询）───────────────
+const SSE_RETRY_DELAYS = [3000, 6000, 15000, 30000]; // 退避梯度（ms）
+let   sseRetryCount    = 0;
+let   sseRetryTimer    = null;
+
 function connectSSE() {
+  if (pollTimer) return; // 已降级为轮询，不再重连 SSE
+  if (esSource) { try { esSource.close(); } catch (_) {} esSource = null; }
   try {
     esSource = new EventSource('/api/market-index/stream');
   } catch (err) {
@@ -150,16 +156,27 @@ function connectSSE() {
   esSource.onmessage = (e) => {
     try {
       const payload = JSON.parse(e.data);
-      indices.value    = payload.data || payload;
-      staleIndex.value = !!payload.stale;
+      indices.value      = payload.data || payload;
+      staleIndex.value   = !!payload.stale;
       loadingIndex.value = false;
+      sseRetryCount      = 0; // 收到数据，重置退避计数
     } catch (err) {
       console.error('[SSE] 大盘数据解析失败:', err);
     }
   };
   esSource.onerror = () => {
     staleIndex.value = true;
-    if (esSource.readyState === 2) startPolling();
+    if (esSource) { try { esSource.close(); } catch (_) {} esSource = null; }
+    if (sseRetryCount < SSE_RETRY_DELAYS.length) {
+      // 指数退避重连
+      const delay = SSE_RETRY_DELAYS[sseRetryCount++];
+      console.warn(`[SSE] 大盘断线，${delay / 1000}s 后重连（第 ${sseRetryCount} 次）`);
+      sseRetryTimer = setTimeout(connectSSE, delay);
+    } else {
+      // 超出重连次数，降级为轮询
+      console.warn('[SSE] 大盘重连失败，降级为轮询');
+      startPolling();
+    }
   };
 }
 
@@ -272,12 +289,7 @@ const summary = computed(() => {
 
 const positionRows = computed(() => currentRows.value.slice(0, 8));
 
-// ── 格式化 ────────────────────────────────────────────────────
-const colorClass  = (v) => v > 0 ? 'rise' : v < 0 ? 'fall' : 'flat';
-const fmtNum      = (v, d = 2) => (v || v === 0) ? v.toLocaleString('zh-CN', { minimumFractionDigits: d, maximumFractionDigits: d }) : '--';
-const fmtMoney    = (v) => `${v >= 0 ? '+' : ''}¥${Math.abs(v).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const fmtPct      = (v) => `${v > 0 ? '+' : ''}${v.toFixed(2)}%`;
-const fmtPrivate  = (v, fmt) => privacyMode.value ? '****' : fmt(v);
+// ── 格式化（由 useFormat composable 提供）────────────────────
 
 // ── 自动保存每日快照（全自动，无需手动）────────────────────────
 // 规则：
@@ -303,6 +315,9 @@ function isTradingTime() {
 
 async function saveSnapshotNow() {
   if (positions.value.length === 0) return;
+  // 行情尚未就绪（所有持仓的 current 都是 0）时不写入，避免产生脏快照
+  const hasQuote = positions.value.some(p => (quotes.value[p.code]?.current || 0) > 0);
+  if (!hasQuote) return;
   try {
     const s = summary.value;
     await api.saveSnapshot({
@@ -362,6 +377,7 @@ onUnmounted(() => {
   if (esSource)         esSource.close();
   if (posEsSource)      posEsSource.close();
   if (pollTimer)        clearInterval(pollTimer);
+  if (sseRetryTimer)    clearTimeout(sseRetryTimer);
   if (snapshotTimeout)  clearTimeout(snapshotTimeout);
   if (snapshotInterval) clearInterval(snapshotInterval);
 });

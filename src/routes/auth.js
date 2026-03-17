@@ -154,12 +154,18 @@ router.post('/logout', (req, res) => {
 });
 
 // GET /api/auth/me
-router.get('/me', (req, res) => {
+router.get('/me', async (req, res) => {
   const token = req.cookies && req.cookies.token;
   if (!token) return fail(res, '未登录', 401);
   try {
-    const user = jwt.verify(token, getSecret());
-    ok(res, { id: user.id, username: user.username });
+    const decoded = jwt.verify(token, getSecret());
+    // 实时查库获取最新 is_vip 状态，避免 Token 签发后升级/降级不生效
+    const user = await db.getUserById(decoded.id);
+    if (!user) {
+      res.clearCookie('token', { httpOnly: true, sameSite: 'strict' });
+      return fail(res, '用户不存在', 401);
+    }
+    ok(res, { id: user.id, username: user.username, isVip: !!user.is_vip });
   } catch (_) {
     res.clearCookie('token', { httpOnly: true, sameSite: 'strict' });
     fail(res, '未登录或登录已过期', 401);

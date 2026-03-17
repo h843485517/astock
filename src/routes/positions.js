@@ -18,7 +18,7 @@ const fail = (res, message, status = 400) => res.status(status).json({ code: 1, 
 const VALID_TYPES = Object.freeze(['stock', 'fund']);
 const CODE_RE     = /^(sh|sz)?\d{6}$/i;
 
-function validateInput({ type, code, shares, cost_price, group_name } = {}) {
+function validateInput({ type, code, shares, cost_price, group_name, stop_loss, take_profit } = {}) {
   if (type !== undefined && !VALID_TYPES.includes(type)) return 'type 必须为 stock 或 fund';
   if (code !== undefined) {
     if (typeof code !== 'string' || !CODE_RE.test(code.trim())) return '证券代码格式不正确（6 位数字，可带 sh/sz 前缀）';
@@ -27,6 +27,8 @@ function validateInput({ type, code, shares, cost_price, group_name } = {}) {
   if (shares !== undefined && (isNaN(shares) || Number(shares) <= 0 || Number(shares) > 1e10)) return '持有份额必须为 0~100亿 之间的正数';
   if (cost_price !== undefined && (isNaN(cost_price) || Number(cost_price) <= 0 || Number(cost_price) > 1e7)) return '成本价必须为 0~1000万 之间的正数';
   if (group_name !== undefined && typeof group_name === 'string' && group_name.length > 30) return '分组名称不能超过 30 个字符';
+  if (stop_loss !== undefined && stop_loss !== null && stop_loss !== '' && (isNaN(stop_loss) || Number(stop_loss) < 0 || Number(stop_loss) > 1e7)) return '止损价格不合法';
+  if (take_profit !== undefined && take_profit !== null && take_profit !== '' && (isNaN(take_profit) || Number(take_profit) < 0 || Number(take_profit) > 1e7)) return '目标价格不合法';
   return null;
 }
 
@@ -158,7 +160,7 @@ router.put('/:id', async (req, res) => {
   if (!existing) return fail(res, '持仓不存在', 404);
   if (existing.user_id !== req.user.id) return fail(res, '无权操作该持仓', 403);
 
-  const { shares, cost_price, group_name, name } = req.body;
+  const { shares, cost_price, group_name, name, stop_loss, take_profit } = req.body;
   const updates = {};
 
   if (shares !== undefined) {
@@ -176,6 +178,13 @@ router.put('/:id', async (req, res) => {
   if (name !== undefined) {
     if (typeof name === 'string' && name.length > 50) return fail(res, '名称不能超过 50 个字符');
     updates.name = name;
+  }
+  // 止损/目标价：传 null 或空字符串则清除
+  if (stop_loss !== undefined) {
+    updates.stop_loss = (stop_loss === null || stop_loss === '') ? null : Number(stop_loss);
+  }
+  if (take_profit !== undefined) {
+    updates.take_profit = (take_profit === null || take_profit === '') ? null : Number(take_profit);
   }
 
   try {
