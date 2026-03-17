@@ -3,8 +3,12 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# 启用 corepack 并激活 pnpm（Node.js 20 内置）
-RUN corepack enable && corepack prepare pnpm@latest --activate
+# 启用 corepack，锁定 pnpm 版本（与 pnpm-lock.yaml 一致，避免联网下载 latest）
+RUN corepack enable && corepack prepare pnpm@10.12.4 --activate
+
+# 配置 npm/pnpm 使用淘宝镜像，防止 ECS 访问 registry.npmjs.org 超时
+RUN npm config set registry https://registry.npmmirror.com && \
+    pnpm config set registry https://registry.npmmirror.com
 
 COPY package.json pnpm-lock.yaml ./
 
@@ -21,8 +25,12 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# 启用 corepack 并激活 pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
+# 启用 corepack，锁定 pnpm 版本
+RUN corepack enable && corepack prepare pnpm@10.12.4 --activate
+
+# 配置镜像源
+RUN npm config set registry https://registry.npmmirror.com && \
+    pnpm config set registry https://registry.npmmirror.com
 
 COPY package.json pnpm-lock.yaml ./
 
