@@ -538,4 +538,45 @@ onUnmounted(() => { if (posEsSource) posEsSource.close(); });
     to   { transform: translateY(0);    opacity: 1; }
   }
 }
+
+/* ── 深色模式 ── */
+:global(html.dark) .modal-box {
+  background: #111;
+  border-color: #2a2a2a;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+}
+:global(html.dark) .modal-header {
+  border-bottom-color: #222;
+}
+:global(html.dark) .modal-title {
+  color: #f0f0f0;
+}
+:global(html.dark) .modal-footer {
+  border-top-color: #222;
+}
+:global(html.dark) .edit-info-row {
+  background: #0a0a0a;
+  border-color: #222;
+}
+:global(html.dark) .edit-info-label { color: #555; }
+:global(html.dark) .edit-info-value { color: #f0f0f0; }
+:global(html.dark) .edit-label { color: #aaa; }
+:global(html.dark) .edit-input {
+  background: #0a0a0a;
+  border-color: #2a2a2a;
+  color: #f0f0f0;
+}
+:global(html.dark) .edit-input:focus {
+  background: #111;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(37,99,235,0.18);
+}
+:global(html.dark) .edit-input::placeholder { color: #444; }
+:global(html.dark) .edit-select {
+  background-color: #0a0a0a;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23555555' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+}
+:global(html.dark) .edit-select:focus {
+  background-color: #111;
+}
 </style>

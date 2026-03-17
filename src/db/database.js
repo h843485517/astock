@@ -57,6 +57,25 @@ async function initDatabase() {
       }
     }
 
+    // 每日收益快照表
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS daily_snapshots (
+        id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        user_id       INT UNSIGNED NOT NULL,
+        snap_date     DATE         NOT NULL,
+        total_asset   DECIMAL(18,2) NOT NULL DEFAULT 0,
+        total_cost    DECIMAL(18,2) NOT NULL DEFAULT 0,
+        total_profit  DECIMAL(18,2) NOT NULL DEFAULT 0,
+        today_profit  DECIMAL(18,2) NOT NULL DEFAULT 0,
+        today_pct     DECIMAL(10,4) NOT NULL DEFAULT 0,
+        total_pct     DECIMAL(10,4) NOT NULL DEFAULT 0,
+        position_count INT UNSIGNED NOT NULL DEFAULT 0,
+        created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_user_date (user_id, snap_date),
+        INDEX idx_user_date (user_id, snap_date)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
     console.log('✅ 数据库初始化完成');
   } catch (err) {
     console.error('❌ 数据库初始化失败:', err.message);
@@ -183,6 +202,83 @@ async function getPositionById(id) {
   return rows[0];
 }
 
+// ─── 历史每日快照 CRUD ────────────────────────────────────────
+
+/**
+ * 写入或更新某天的收益快照（upsert）
+ * 规则：
+ *   - 今日快照：允许覆盖更新（交易日内可多次刷新）
+ *   - 历史快照（非今日）：仅允许首次写入，已有记录则忽略，防止日后操作意外覆盖历史数据
+ * @param {number} userId
+ * @param {object} snap  { snap_date, total_asset, total_cost, total_profit, today_profit, today_pct, total_pct, position_count }
+ */
+async function upsertDailySnapshot(userId, snap) {
+  const {
+    snap_date, total_asset, total_cost, total_profit,
+    today_profit, today_pct, total_pct, position_count,
+  } = snap;
+
+  // 计算北京时间今日日期
+  const now = new Date();
+  const bjToday = new Date(now.getTime() + (8 * 60 + now.getTimezoneOffset()) * 60000)
+    .toISOString().slice(0, 10);
+
+  if (snap_date === bjToday) {
+    // 今日快照：允许覆盖
+    await pool.execute(
+      `INSERT INTO daily_snapshots
+         (user_id, snap_date, total_asset, total_cost, total_profit, today_profit, today_pct, total_pct, position_count)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         total_asset    = VALUES(total_asset),
+         total_cost     = VALUES(total_cost),
+         total_profit   = VALUES(total_profit),
+         today_profit   = VALUES(today_profit),
+         today_pct      = VALUES(today_pct),
+         total_pct      = VALUES(total_pct),
+         position_count = VALUES(position_count)`,
+      [userId, snap_date, total_asset, total_cost, total_profit, today_profit, today_pct, total_pct, position_count]
+    );
+  } else {
+    // 历史快照：仅首次写入，已存在则忽略（INSERT IGNORE）
+    await pool.execute(
+      `INSERT IGNORE INTO daily_snapshots
+         (user_id, snap_date, total_asset, total_cost, total_profit, today_profit, today_pct, total_pct, position_count)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [userId, snap_date, total_asset, total_cost, total_profit, today_profit, today_pct, total_pct, position_count]
+    );
+  }
+}
+
+/**
+ * 查询某用户指定年月范围内的所有快照
+ * @param {number} userId
+ * @param {string} startDate  'YYYY-MM-DD'
+ * @param {string} endDate    'YYYY-MM-DD'
+ */
+async function getDailySnapshots(userId, startDate, endDate) {
+  const [rows] = await pool.execute(
+    `SELECT * FROM daily_snapshots
+     WHERE user_id = ? AND snap_date BETWEEN ? AND ?
+     ORDER BY snap_date ASC`,
+    [userId, startDate, endDate]
+  );
+  return rows;
+}
+
+/**
+ * 查询某用户某天的快照
+ * @param {number} userId
+ * @param {string} date  'YYYY-MM-DD'
+ */
+async function getSnapshotByDate(userId, date) {
+  const [rows] = await pool.execute(
+    'SELECT * FROM daily_snapshots WHERE user_id = ? AND snap_date = ? LIMIT 1',
+    [userId, date]
+  );
+  return rows[0];
+}
+
 module.exports = {
   pool,
   initDatabase,
@@ -196,4 +292,8 @@ module.exports = {
   updatePosition,
   deletePosition,
   getPositionById,
+  // 历史快照相关
+  upsertDailySnapshot,
+  getDailySnapshots,
+  getSnapshotByDate,
 };

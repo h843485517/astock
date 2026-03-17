@@ -114,10 +114,29 @@ const loadingPos   = ref(true);
 const staleIndex   = ref(false);
 const sseActive    = ref(false);
 const activeTab    = ref('全部');
+const prevDayAsset = ref(0); // 昨日收盘总资产，用于计算今日涨跌幅基准
 
-let esSource    = null; // 大盘 SSE
-let posEsSource = null; // 持仓 SSE
-let pollTimer   = null;
+let esSource       = null; // 大盘 SSE
+let posEsSource    = null; // 持仓 SSE
+let pollTimer      = null;
+let snapshotTimeout  = null; // setTimeout 句柄（等待到 15:05）
+let snapshotInterval = null; // setInterval 句柄（每 24h 重复）
+
+// 获取昨日快照资产，作为今日涨跌幅的基准
+async function loadPrevDayAsset() {
+  try {
+    const now = new Date();
+    const bjTime = new Date(now.getTime() + (8 * 60 + now.getTimezoneOffset()) * 60000);
+    const yesterday = new Date(bjTime);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const pad = n => String(n).padStart(2, '0');
+    const dateStr = `${yesterday.getFullYear()}-${pad(yesterday.getMonth()+1)}-${pad(yesterday.getDate())}`;
+    const res = await api.getDateSnapshot(dateStr);
+    prevDayAsset.value = Number(res.data?.total_asset) || 0;
+  } catch (_) {
+    prevDayAsset.value = 0; // 无昨日快照时为 0，降级用行情 close 估算
+  }
+}
 
 // ── 大盘 SSE（失败时降级为轮询）──────────────────────────────
 function connectSSE() {
@@ -171,6 +190,8 @@ function connectPositionSSE() {
       if (payload.code === 0) {
         positions.value = payload.positions || [];
         quotes.value    = payload.quotes    || {};
+        // 每次收到新数据，尝试节流存档
+        throttledSnapshot();
       }
       loadingPos.value = false;
       sseActive.value  = true;
@@ -181,7 +202,6 @@ function connectPositionSSE() {
 
   posEsSource.onerror = () => {
     sseActive.value = false;
-    // SSE 断开后降级：手动刷新仍可用
   };
 }
 
@@ -244,8 +264,10 @@ const summary = computed(() => {
     todayProfit += (r.current - r.close) * r.shares;
   }
   const totalProfit = totalAsset - totalCost;
-  const todayPct = totalAsset - todayProfit > 0 ? todayProfit / (totalAsset - todayProfit) * 100 : 0;
-  return { totalAsset, totalProfit, totalPct: totalCost > 0 ? totalProfit / totalCost * 100 : 0, todayProfit, todayPct };
+  // 用昨日快照资产作基准（更准确），无昨日快照时降级用开盘估算
+  const baseAsset = prevDayAsset.value > 0 ? prevDayAsset.value : (totalAsset - todayProfit);
+  const todayPct  = baseAsset > 0 ? todayProfit / baseAsset * 100 : 0;
+  return { totalAsset, totalCost, totalProfit, totalPct: totalCost > 0 ? totalProfit / totalCost * 100 : 0, todayProfit, todayPct };
 });
 
 const positionRows = computed(() => currentRows.value.slice(0, 8));
@@ -257,15 +279,90 @@ const fmtMoney    = (v) => `${v >= 0 ? '+' : ''}¥${Math.abs(v).toLocaleString('
 const fmtPct      = (v) => `${v > 0 ? '+' : ''}${v.toFixed(2)}%`;
 const fmtPrivate  = (v, fmt) => privacyMode.value ? '****' : fmt(v);
 
+// ── 自动保存每日快照（全自动，无需手动）────────────────────────
+// 规则：
+//   1. 交易时段（9:25~15:10 北京时间）内，SSE 每次推送数据后节流写入（10分钟最多1次）
+//   2. 精确在 15:05 额外触发一次"收盘快照"，保证当天最终数据被记录
+//   3. 非交易时段的 SSE 推送不写入，避免夜间/周末产生无意义记录
+
+let lastSnapshotTime = 0; // 上次写入时间戳（ms）
+const SNAPSHOT_THROTTLE_MS = 10 * 60 * 1000; // 节流：10 分钟
+
+function getBJHourMin() {
+  const now = new Date();
+  const bj  = new Date(now.getTime() + (8 * 60 + now.getTimezoneOffset()) * 60000);
+  return { h: bj.getHours(), m: bj.getMinutes(), dow: bj.getDay() };
+}
+
+function isTradingTime() {
+  const { h, m, dow } = getBJHourMin();
+  if (dow === 0 || dow === 6) return false; // 周末
+  const mins = h * 60 + m;
+  return (mins >= 9 * 60 + 25) && (mins <= 15 * 60 + 10);
+}
+
+async function saveSnapshotNow() {
+  if (positions.value.length === 0) return;
+  try {
+    const s = summary.value;
+    await api.saveSnapshot({
+      total_asset:    +s.totalAsset.toFixed(2),
+      total_cost:     +s.totalCost.toFixed(2),
+      total_profit:   +s.totalProfit.toFixed(2),
+      today_profit:   +s.todayProfit.toFixed(2),
+      today_pct:      +s.todayPct.toFixed(4),
+      total_pct:      +s.totalPct.toFixed(4),
+      position_count: positions.value.length,
+    });
+    lastSnapshotTime = Date.now();
+  } catch (_) { /* 静默失败 */ }
+}
+
+// 节流：交易时段内每 10 分钟最多存一次
+function throttledSnapshot() {
+  if (!isTradingTime()) return;
+  if (Date.now() - lastSnapshotTime < SNAPSHOT_THROTTLE_MS) return;
+  saveSnapshotNow();
+}
+
+// 精确安排收盘快照（每天 15:05 存一次最终值）
+function scheduleCloseSnapshot() {
+  // 清除上次可能残留的定时器
+  if (snapshotTimeout)  clearTimeout(snapshotTimeout);
+  if (snapshotInterval) clearInterval(snapshotInterval);
+
+  const now   = new Date();
+  const bjNow = new Date(now.getTime() + (8 * 60 + now.getTimezoneOffset()) * 60000);
+  const target = new Date(bjNow);
+  target.setHours(15, 5, 0, 0);
+  if (bjNow >= target) target.setDate(target.getDate() + 1); // 已过今天则排到明天
+  const ms = target - bjNow;
+
+  snapshotTimeout = setTimeout(async () => {
+    snapshotTimeout = null;
+    lastSnapshotTime = 0; // 强制忽略节流，保证收盘快照一定写入
+    await saveSnapshotNow();
+    // 之后每 24 小时重复一次
+    snapshotInterval = setInterval(async () => {
+      lastSnapshotTime = 0;
+      await saveSnapshotNow();
+    }, 24 * 60 * 60 * 1000);
+  }, ms);
+}
+
 onMounted(() => {
   loadingIndex.value = true;
+  loadPrevDayAsset();
   connectSSE();
   connectPositionSSE();
+  scheduleCloseSnapshot();
 });
 
 onUnmounted(() => {
-  if (esSource)    esSource.close();
-  if (posEsSource) posEsSource.close();
-  if (pollTimer)   clearInterval(pollTimer);
+  if (esSource)         esSource.close();
+  if (posEsSource)      posEsSource.close();
+  if (pollTimer)        clearInterval(pollTimer);
+  if (snapshotTimeout)  clearTimeout(snapshotTimeout);
+  if (snapshotInterval) clearInterval(snapshotInterval);
 });
 </script>

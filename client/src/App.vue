@@ -8,6 +8,7 @@
       <div class="nav-links">
         <router-link to="/">首页</router-link>
         <router-link to="/positions">持仓管理</router-link>
+        <router-link to="/history">收益历史</router-link>
         <router-link to="/chat">投资顾问</router-link>
       </div>
       <div class="nav-right">
@@ -78,6 +79,10 @@
       <router-link to="/add" class="tabbar-item" :class="{ active: route.path === '/add' }">
         <span class="tabbar-icon">➕</span>
         <span class="tabbar-label">添加</span>
+      </router-link>
+      <router-link to="/history" class="tabbar-item" :class="{ active: route.path === '/history' }">
+        <span class="tabbar-icon">📅</span>
+        <span class="tabbar-label">历史</span>
       </router-link>
       <router-link to="/chat" class="tabbar-item" :class="{ active: route.path === '/chat' }">
         <span class="tabbar-icon">🤖</span>
@@ -338,7 +343,7 @@ window.showToast = function (message, type = 'info', duration = 3000) {
   font-family: inherit;
 }
 .dropdown-item:hover { background: var(--bg-card-hv); color: var(--text-primary); }
-.dropdown-item-danger:hover { background: #fff5f5; color: var(--color-rise); }
+.dropdown-item-danger:hover { background: rgba(224,53,53,0.08); color: var(--color-rise); }
 .di-icon { font-size: 15px; width: 20px; text-align: center; flex-shrink: 0; }
 .di-badge {
   margin-left: auto;
@@ -437,8 +442,8 @@ window.showToast = function (message, type = 'info', duration = 3000) {
 
 /* 暗黑模式下 tabbar */
 :global(html.dark) .mobile-tabbar {
-  background: #1e293b;
-  border-top-color: #334155;
-  box-shadow: 0 -2px 12px rgba(0,0,0,0.3);
+  background: #111111;
+  border-top-color: #222222;
+  box-shadow: 0 -2px 12px rgba(0,0,0,0.5);
 }
 </style>

@@ -34,6 +34,7 @@ const positionsRouter            = require('./src/routes/positions');
 const quoteRouter                = require('./src/routes/quote');
 const authRouter                 = require('./src/routes/auth');
 const chatRouter                 = require('./src/routes/chat');
+const historyRouter              = require('./src/routes/history');
 const { startIndexPolling }      = require('./src/services/quoteService');
 const { initDatabase, pool }     = require('./src/db/database');
 
@@ -88,6 +89,7 @@ app.use(express.urlencoded({ extended: false, limit: REQUEST_BODY_LIMIT }));
 app.use('/api/auth',      authRouter);
 app.use('/api/positions', positionsRouter);
 app.use('/api/chat',      chatRouter);
+app.use('/api/history',   historyRouter);
 app.use('/api', quoteRouter);
 
 // ─── 静态文件（生产用 dist/，开发由 Vite 托管）────────────────

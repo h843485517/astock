@@ -26,3 +26,9 @@ export const register       = (data) => request('/api/auth/register',  { method:
 export const logout         = ()     => request('/api/auth/logout',    { method: 'POST' });
 export const getMe          = ()     => request('/api/auth/me');
 export const changePassword = (data) => request('/api/auth/password',  { method: 'PUT',  body: JSON.stringify(data) });
+
+// ── 历史记录接口 ──────────────────────────────────────────────
+export const saveSnapshot      = (data)          => request('/api/history/snapshot', { method: 'POST', body: JSON.stringify(data) });
+export const getMonthSnapshots = (year, month)   => request(`/api/history/snapshots?year=${year}&month=${month}`);
+export const getRangeSnapshots = (start, end)    => request(`/api/history/snapshots/range?start=${start}&end=${end}`);
+export const getDateSnapshot   = (date)          => request(`/api/history/snapshots/${date}`);

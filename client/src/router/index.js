@@ -4,6 +4,7 @@ import Positions   from '../pages/Positions.vue';
 import AddPosition from '../pages/AddPosition.vue';
 import Login       from '../pages/Login.vue';
 import Chat        from '../pages/Chat.vue';
+import History     from '../pages/History.vue';
 import * as api    from '../api.js';
 
 const routes = [
@@ -12,6 +13,7 @@ const routes = [
   { path: '/positions', component: Positions },
   { path: '/add',       component: AddPosition },
   { path: '/chat',      component: Chat },
+  { path: '/history',   component: History },
   { path: '/:pathMatch(.*)*', redirect: '/' },
 ];
 

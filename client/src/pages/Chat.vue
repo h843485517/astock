@@ -2,19 +2,20 @@
   <div class="page chat-page">
     <!-- 标题 -->
     <div class="section-header" style="margin-bottom:16px;">
-      <span class="section-title">🤖 AI 投资顾问11</span>
+      <span class="section-title">🤖 AI 投资顾问</span>
       <span style="font-size:12px;color:var(--text-muted);">模型：{{ modelName }}</span>
     </div>
 
-    <!-- AI 服务不可用提示（对用户展示为 VIP 功能） -->
-    <div v-if="ollamaDown" class="info-card vip-card" style="margin-bottom:16px;">
-      <div class="vip-card-icon">👑</div>
-      <div class="vip-card-title">VIP 专属功能</div>
-      <p class="vip-card-desc">AI 投资顾问为高级会员专属功能，当前暂未向您开放。</p>
-      <button class="btn btn-secondary vip-retry-btn" @click="handleRetry">刷新重试</button>
+    <!-- AI 服务不可用：全屏占满提示 -->
+    <div v-if="ollamaDown" class="vip-fullscreen">
+      <div class="vip-fullscreen-icon">👑</div>
+      <div class="vip-fullscreen-title">VIP 专属功能</div>
+      <p class="vip-fullscreen-desc">AI 投资顾问为高级会员专属功能，当前暂未向您开放。</p>
+      <button class="btn btn-secondary vip-fullscreen-btn" @click="handleRetry">刷新重试</button>
     </div>
 
-    <!-- 持仓标的选择器 -->
+    <!-- 正常聊天界面（ollamaDown 时完全隐藏） -->
+    <template v-else>
     <div class="info-card" style="margin-bottom:16px;">
       <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">
         📌 选择要重点分析的标的（历史行情将纳入上下文，可多选）
@@ -96,6 +97,7 @@
         </div>
       </div>
     </div>
+    </template>
   </div>
 </template>
 
@@ -291,18 +293,29 @@ async function sendMessage() {
 }
 .warn-card { border-color: #fde68a; background: #fffbeb; }
 
-/* VIP 功能提示卡片 */
-.vip-card {
-  border-color: #fbbf24;
-  background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+/* VIP 全屏占满提示 */
+.vip-fullscreen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   text-align: center;
-  padding: 28px 20px 22px;
+  padding: 40px 24px;
+  border-radius: var(--radius-lg);
+  border: 1.5px dashed #fbbf24;
+  background: linear-gradient(160deg, #fffbeb 0%, #fef3c7 100%);
+  gap: 4px;
 }
-.vip-card-icon  { font-size: 36px; margin-bottom: 10px; }
-.vip-card-title { font-size: 16px; font-weight: 700; color: #92400e; margin-bottom: 8px; }
-.vip-card-desc  { font-size: 13px; color: #78350f; margin-bottom: 16px; line-height: 1.6; }
-.vip-retry-btn  { font-size: 12px; color: #92400e; border-color: #fbbf24; background: rgba(255,255,255,0.6); }
-.vip-retry-btn:hover { background: rgba(255,255,255,0.9); }
+.vip-fullscreen-icon  { font-size: 52px; margin-bottom: 8px; }
+.vip-fullscreen-title { font-size: 20px; font-weight: 800; color: #92400e; margin-bottom: 10px; }
+.vip-fullscreen-desc  { font-size: 14px; color: #78350f; line-height: 1.7; max-width: 320px; margin-bottom: 24px; }
+.vip-fullscreen-btn   {
+  font-size: 13px; padding: 8px 24px;
+  color: #92400e; border-color: #fbbf24;
+  background: rgba(255,255,255,0.7);
+}
+.vip-fullscreen-btn:hover { background: rgba(255,255,255,0.95); }
 
 /* 代码块 */
 .code-block {
@@ -318,8 +331,6 @@ async function sendMessage() {
   color: #1e40af;
 }
 .code-line { line-height: 1.8; }
-
-/* 标的 Tag 列表 */
 .tag-list { display: flex; flex-wrap: wrap; gap: 8px; }
 .pos-tag {
   padding: 5px 12px;
@@ -371,7 +382,7 @@ async function sendMessage() {
   cursor: pointer;
   transition: all 0.2s;
 }
-.suggestion-item:hover { border-color: var(--color-primary); color: var(--color-primary); background: #eff6ff; }
+.suggestion-item:hover { border-color: var(--color-primary); color: var(--color-primary); background: var(--color-primary-lt); }
 
 /* 消息气泡 */
 .msg-row { display: flex; align-items: flex-start; gap: 10px; }
@@ -381,8 +392,8 @@ async function sendMessage() {
 .msg-avatar {
   width: 32px; height: 32px;
   border-radius: 50%;
-  background: #eff6ff;
-  border: 1px solid #bfdbfe;
+  background: var(--color-primary-lt);
+  border: 1px solid rgba(37,99,235,0.3);
   display: flex; align-items: center; justify-content: center;
   font-size: 16px;
   flex-shrink: 0;
@@ -439,4 +450,27 @@ async function sendMessage() {
   justify-content: space-between;
   margin-top: 8px;
 }
+
+/* ── 深色模式 ── */
+:global(html.dark) .code-block {
+  background: #0a0a0a;
+  border-color: #222;
+  color: #7cb9f4;
+}
+:global(html.dark) .warn-card {
+  border-color: rgba(251,191,36,0.35);
+  background: rgba(120,83,0,0.18);
+}
+:global(html.dark) .vip-fullscreen {
+  border-color: rgba(251,191,36,0.4);
+  background: linear-gradient(160deg, rgba(120,83,0,0.22) 0%, rgba(100,60,0,0.28) 100%);
+}
+:global(html.dark) .vip-fullscreen-title { color: #fbbf24; }
+:global(html.dark) .vip-fullscreen-desc  { color: #d97706; }
+:global(html.dark) .vip-fullscreen-btn {
+  color: #fbbf24;
+  border-color: rgba(251,191,36,0.4);
+  background: rgba(251,191,36,0.10);
+}
+:global(html.dark) .vip-fullscreen-btn:hover { background: rgba(251,191,36,0.22); }
 </style>
