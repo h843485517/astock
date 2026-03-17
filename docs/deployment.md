@@ -267,6 +267,19 @@ CREATE USER 'astock_user'@'localhost' IDENTIFIED BY '你的强密码';
 GRANT ALL PRIVILEGES ON astock.* TO 'astock_user'@'localhost';
 FLUSH PRIVILEGES;
 EXIT;
+
+-- 清空数据库的表
+-- 第一步
+mysql -u astock_user -p
+
+-- 第二步
+USE astock;
+SET FOREIGN_KEY_CHECKS = 0;
+TRUNCATE TABLE users;
+TRUNCATE TABLE positions;
+TRUNCATE TABLE daily_snapshots;
+SET FOREIGN_KEY_CHECKS = 1;
+EXIT;
 ```
 
 完成后在 `.env` 中填写对应配置：
