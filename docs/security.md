@@ -33,14 +33,15 @@
 
 ---
 
-## 业务层（routes/positions.js）
+## 业务层（routes/positions.js + routes/chat.js）
 
 | 机制 | 详情 |
 |------|------|
-| **全路由强制登录** | `router.use(requireAuth)` 统一拦截所有持仓接口，未登录返回 HTTP 401 |
+| **全路由强制登录** | `router.use(requireAuth)` 统一拦截持仓和 AI 聊天所有接口，未登录返回 HTTP 401 |
 | **越权访问防护（路由层）** | 修改/删除前先查询记录，校验 `existing.user_id !== req.user.id`，越权返回 HTTP 403 |
 | **输入白名单校验** | `type`、`code`、`shares`、`cost_price`、`group_name` 均有格式、范围、长度的严格校验 |
 | **SSE 连接数限制** | 持仓推送 SSE 同时最多 100 个连接（`MAX_SSE_CLIENTS`），超出返回 HTTP 503 |
+| **AI 双模式路由** | 根据用户 `is_vip` 字段自动路由：`0` → 免费云端 API，`1` → 本地 Ollama，服务端判定不可绕过 |
 
 ---
 

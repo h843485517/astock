@@ -44,10 +44,12 @@ pnpm install
 
 # 2. 配置环境变量（首次使用必做）
 cp .env.example .env
-# 编辑 .env，至少填写以下两项：
-# MYSQL_PASSWORD=你的MySQL密码
-# JWT_SECRET=（用下方命令生成64位随机字符串）
-node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
+# 编辑 .env，至少填写以下几项：
+MYSQL_USER=你的MySQL用户名
+MYSQL_PASSWORD=你的MySQL密码
+JWT_SECRET=（用下方命令生成64位随机字符串）
+ # node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
+OPENAI_API_KEY=sk-替换为你的APIKey
 
 # 3. 启动开发模式（推荐，带热更新）
 pnpm run dev

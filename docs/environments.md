@@ -109,7 +109,7 @@ OLLAMA_BASE_URL=http://ollama:11434  # 容器内访问 Ollama
 
 | 特性 | 本地开发 | 生产环境 |
 |---|---|---|
-| **启动命令** | `npm run dev` | `npm start` 或 `docker-compose up -d` |
+| **启动命令** | `pnpm run dev` | `pnpm start` 或 `docker-compose up -d` |
 | **进程模式** | 单进程 | Cluster 多进程（CPU 核数） |
 | **前端服务** | Vite 开发服务器（端口 5173） | Express 托管 `dist/` 静态文件 |
 | **热更新** | 后端 nodemon + 前端 HMR | 无，需重新构建部署 |
