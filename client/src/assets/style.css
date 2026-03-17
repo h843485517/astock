@@ -148,6 +148,7 @@ td {
 }
 td:first-child { text-align: left; color: var(--text-primary); }
 .td-name { font-weight: 500; }
+.td-pct  { font-size: 11px; display: block; }
 
 /* ─── 汇总栏 ─────────────────────────────────────────────────── */
 .summary-bar {
@@ -166,6 +167,7 @@ td:first-child { text-align: left; color: var(--text-primary); }
 }
 .summary-item .label { font-size: 12px; color: var(--text-muted); margin-bottom: 5px; font-weight: 500; }
 .summary-item .value { font-size: 21px; font-weight: 700; color: var(--text-primary); }
+.summary-item .sub-value { font-size: 13px; font-weight: 500; margin-top: 3px; }
 
 /* ─── Tab 摘要栏 ──────────────────────────────────────────────── */
 .tab-summary {
@@ -577,6 +579,130 @@ td:first-child { text-align: left; color: var(--text-primary); }
 @media (max-width: 480px) {
   .market-grid-6 { grid-template-columns: repeat(2, 1fr); }
   .market-grid   { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ─── 移动端（≤640px）────────────────────────────────────────── */
+@media (max-width: 640px) {
+  /* 隐藏顶部导航链接，由底部 tabbar 替代 */
+  .nav-links { display: none !important; }
+  .user-avatar-name { display: none !important; }
+
+  /* 页面底部为 tabbar 留空 */
+  .page { padding-bottom: calc(68px + env(safe-area-inset-bottom)); }
+
+  /* ── 表格卡片化 ─────────────────────────────────────────────── */
+  /* 仅隐藏普通表头行（非分组标题行） */
+  .table-wrap table thead tr:not(:first-child),
+  .table-wrap table thead tr:only-child {
+    position: absolute;
+    width: 1px; height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  /* 有分组标题（colspan）的 thead 第一行保持可见 */
+  .table-wrap table thead tr:first-child:not(:only-child) {
+    display: block;
+  }
+  .table-wrap table thead tr:first-child:not(:only-child) th {
+    display: block;
+    padding: 8px 14px 6px;
+    font-size: 12px;
+    color: var(--text-muted);
+    background: transparent;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .table-wrap table,
+  .table-wrap table tbody,
+  .table-wrap table tr { display: block; }
+
+  .table-wrap table tbody tr {
+    margin: 10px 10px 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 10px 0 4px;
+    background: var(--bg-card);
+    box-shadow: var(--shadow-card);
+  }
+  .table-wrap table tbody tr:last-child { margin-bottom: 10px; }
+
+  .table-wrap table td {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 5px 14px;
+    text-align: right;
+    border: none;
+    font-size: 13px;
+  }
+  /* 首列（名称）：全宽、加粗、左对齐，作为卡片标题 */
+  .table-wrap table td:first-child {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+    padding: 4px 14px 10px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 2px;
+    text-align: left;
+    justify-content: flex-start;
+  }
+  /* 小屏时 .td-value-wrap 作为统一容器，子元素 .td-pct 改为行内 */
+  .table-wrap table .td-value-wrap { text-align: right; }
+  .table-wrap table .td-pct { display: inline; margin-left: 4px; }
+
+  /* 用 data-label 显示列名 */
+  .table-wrap table td::before {
+    content: attr(data-label);
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: 500;
+    text-align: left;
+    flex-shrink: 0;
+    margin-right: 8px;
+    align-self: center;
+  }
+  .table-wrap table td:first-child::before { display: none; }
+  /* 操作列：右对齐、上边框 */
+  .table-wrap table td:last-child {
+    justify-content: flex-end;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+    margin-top: 4px;
+  }
+  .table-wrap table td:last-child::before { display: none; }
+
+  /* ── 表单响应式 ─────────────────────────────────────────────── */
+  .form-row  { grid-template-columns: 1fr; }
+  .form-card { padding: 20px 16px; }
+  .form-actions { justify-content: stretch; }
+  .form-actions .btn { flex: 1; }
+
+  /* ── section-header 换行 ────────────────────────────────────── */
+  .section-header { flex-wrap: wrap; gap: 8px; }
+  .section-header > div { display: flex; gap: 8px; }
+
+  /* ── 按钮触摸区域 ───────────────────────────────────────────── */
+  .btn { min-height: 38px; }
+  .btn-sm { min-height: 34px; }
+  .tab-item { padding: 10px 14px; }
+
+  /* ── 汇总数值字体与布局 ─────────────────────────────────────── */
+  .summary-bar { 
+    display: grid; 
+    grid-template-columns: 1fr 1fr; 
+    gap: 1px;
+  }
+  .summary-item:first-child { grid-column: 1 / -1; }
+  .summary-item { padding: 12px 14px; }
+  .summary-item .label { font-size: 11px; margin-bottom: 3px; }
+  .summary-item .value { font-size: 16px; }
+  .summary-item .sub-value { 
+    display: inline; 
+    font-size: 12px; 
+    margin-left: 6px; 
+    opacity: 0.85; 
+  }
 }
 
 /* ─── 暗黑主题 ───────────────────────────────────────────────── */

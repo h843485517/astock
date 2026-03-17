@@ -45,17 +45,23 @@ MYSQL_PASSWORD=你的MySQL密码
 # 生成强随机密钥：node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
 JWT_SECRET=替换为64位以上随机字符串
 
-# 3. 构建前端
-pnpm run build
-
-# 4. 启动服务
-pnpm start
-
-# 开发模式（热重启）
+# 3. 启动开发模式（推荐，带热更新）
 pnpm run dev
 ```
 
-访问 [http://localhost:3000](http://localhost:3000)，注册账号后开始使用。
+访问 [http://localhost:5173](http://localhost:5173)（Vite 开发服务器），注册账号后开始使用。
+
+### 生产模式启动
+
+```bash
+# 构建前端 + 启动 Node.js 服务器
+pnpm run build
+pnpm start
+```
+
+访问 [http://localhost:3000](http://localhost:3000)。
+
+> **`pnpm start` 的作用**：用于生产环境部署（Docker/ECS/PaaS）、CI/CD 流水线、正式上线。开发时请用 `pnpm run dev` 享受 Vite 热更新。
 
 ### 启用 AI 投资顾问
 

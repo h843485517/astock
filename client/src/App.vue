@@ -65,6 +65,26 @@
       </div>
     </nav>
 
+    <!-- 移动端底部 Tab Bar -->
+    <nav class="mobile-tabbar" v-if="!isLoginPage">
+      <router-link to="/" class="tabbar-item" :class="{ active: route.path === '/' }">
+        <span class="tabbar-icon">🏠</span>
+        <span class="tabbar-label">首页</span>
+      </router-link>
+      <router-link to="/positions" class="tabbar-item" :class="{ active: route.path === '/positions' }">
+        <span class="tabbar-icon">📋</span>
+        <span class="tabbar-label">持仓</span>
+      </router-link>
+      <router-link to="/add" class="tabbar-item" :class="{ active: route.path === '/add' }">
+        <span class="tabbar-icon">➕</span>
+        <span class="tabbar-label">添加</span>
+      </router-link>
+      <router-link to="/chat" class="tabbar-item" :class="{ active: route.path === '/chat' }">
+        <span class="tabbar-icon">🤖</span>
+        <span class="tabbar-label">顾问</span>
+      </router-link>
+    </nav>
+
     <router-view v-slot="{ Component }">
       <Transition name="page" mode="out-in">
         <component :is="Component" />
@@ -113,7 +133,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
+import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import * as api from './api.js';
 import { usePrivacy } from './composables/usePrivacy.js';
@@ -146,14 +166,26 @@ function onClickOutside(e) {
   }
 }
 
-onMounted(async () => {
-  applyDark(darkMode.value);
-  document.addEventListener('click', onClickOutside);
+async function fetchUsername() {
   try {
     const res = await api.getMe();
     username.value = res.data?.username || '';
-    console.log('!!!@@@username', username.value);
-  } catch (_) {}
+  } catch (_) {
+    username.value = '';
+  }
+}
+
+onMounted(async () => {
+  applyDark(darkMode.value);
+  document.addEventListener('click', onClickOutside);
+  await fetchUsername();
+});
+
+// 从登录页跳转到其他页面时重新获取用户名
+watch(() => route.path, (newPath, oldPath) => {
+  if (oldPath === '/login' && newPath !== '/login') {
+    fetchUsername();
+  }
 });
 onUnmounted(() => document.removeEventListener('click', onClickOutside));
 
@@ -369,4 +401,44 @@ window.showToast = function (message, type = 'info', duration = 3000) {
 .edit-input:focus { border-color: var(--color-primary); background: var(--bg-card); box-shadow: 0 0 0 3px rgba(37,99,235,0.10); }
 .edit-input::placeholder { color: var(--text-muted); }
 .edit-error { font-size: 12px; color: var(--color-rise); }
+
+/* ── 移动端底部 Tab Bar ──────────────────────────────────────── */
+.mobile-tabbar { display: none; }
+
+@media (max-width: 640px) {
+  .mobile-tabbar {
+    display: flex;
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    z-index: 200;
+    background: var(--bg-card);
+    border-top: 1px solid var(--border);
+    padding-bottom: env(safe-area-inset-bottom);
+    box-shadow: 0 -2px 12px rgba(0,0,0,0.06);
+  }
+  .tabbar-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 4px;
+    text-decoration: none;
+    color: var(--text-muted);
+    font-size: 10px;
+    gap: 3px;
+    transition: color 0.15s;
+    font-family: inherit;
+  }
+  .tabbar-item.active { color: var(--color-primary); }
+  .tabbar-icon { font-size: 20px; line-height: 1; }
+  .tabbar-label { font-weight: 500; }
+}
+
+/* 暗黑模式下 tabbar */
+:global(html.dark) .mobile-tabbar {
+  background: #1e293b;
+  border-top-color: #334155;
+  box-shadow: 0 -2px 12px rgba(0,0,0,0.3);
+}
 </style>

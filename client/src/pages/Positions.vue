@@ -71,15 +71,19 @@
               <tbody>
                 <tr v-for="row in rows" :key="row.id">
                   <td class="td-name">{{ row.name || '--' }}</td>
-                  <td>{{ row.current ? fmtPrivate(row.current * row.shares, v => '¥' + fmtNum(v)) : '--' }}</td>
-                  <td :class="colorClass(row.change_pct)">
-                    <div>{{ row.current ? fmtNum(row.current) : '--' }}</div>
-                    <div style="font-size:11px;">{{ row.current ? fmtPct(row.change_pct) : '' }}</div>
+                  <td data-label="持仓总金额">{{ row.current ? fmtPrivate(row.current * row.shares, v => '¥' + fmtNum(v)) : '--' }}</td>
+                  <td data-label="当日净值" :class="colorClass(row.change_pct)">
+                    <div class="td-value-wrap">
+                      <div>{{ row.current ? fmtNum(row.current) : '--' }}</div>
+                      <div v-if="row.current" class="td-pct">{{ fmtPct(row.change_pct) }}</div>
+                    </div>
                   </td>
-                  <td :class="colorClass(row.todayProfit)">{{ row.current ? fmtPrivate(row.todayProfit, fmtMoney) : '--' }}</td>
-                  <td :class="colorClass(row.profit)">
-                    <div>{{ row.current ? fmtPrivate(row.profit, fmtMoney) : '--' }}</div>
-                    <div style="font-size:11px;">{{ row.current ? fmtPrivate(row.profitPct, fmtPct) : '' }}</div>
+                  <td data-label="当日收益" :class="colorClass(row.todayProfit)">{{ row.current ? fmtPrivate(row.todayProfit, fmtMoney) : '--' }}</td>
+                  <td data-label="持有收益" :class="colorClass(row.profit)">
+                    <div class="td-value-wrap">
+                      <div>{{ row.current ? fmtPrivate(row.profit, fmtMoney) : '--' }}</div>
+                      <div v-if="row.current" class="td-pct">{{ fmtPrivate(row.profitPct, fmtPct) }}</div>
+                    </div>
                   </td>
                   <td>
                     <div style="display:flex;gap:6px;">
@@ -104,15 +108,19 @@
             <tbody>
               <tr v-for="row in currentRows" :key="row.id">
                 <td class="td-name">{{ row.name || '--' }}</td>
-                <td>{{ row.current ? fmtPrivate(row.current * row.shares, v => '¥' + fmtNum(v)) : '--' }}</td>
-                <td :class="colorClass(row.change_pct)">
-                  <div>{{ row.current ? fmtNum(row.current) : '--' }}</div>
-                  <div style="font-size:11px;">{{ row.current ? fmtPct(row.change_pct) : '' }}</div>
+                <td data-label="持仓总金额">{{ row.current ? fmtPrivate(row.current * row.shares, v => '¥' + fmtNum(v)) : '--' }}</td>
+                <td data-label="当日净值" :class="colorClass(row.change_pct)">
+                  <div class="td-value-wrap">
+                    <div>{{ row.current ? fmtNum(row.current) : '--' }}</div>
+                    <div v-if="row.current" class="td-pct">{{ fmtPct(row.change_pct) }}</div>
+                  </div>
                 </td>
-                <td :class="colorClass(row.todayProfit)">{{ row.current ? fmtPrivate(row.todayProfit, fmtMoney) : '--' }}</td>
-                <td :class="colorClass(row.profit)">
-                  <div>{{ row.current ? fmtPrivate(row.profit, fmtMoney) : '--' }}</div>
-                  <div style="font-size:11px;">{{ row.current ? fmtPrivate(row.profitPct, fmtPct) : '' }}</div>
+                <td data-label="当日收益" :class="colorClass(row.todayProfit)">{{ row.current ? fmtPrivate(row.todayProfit, fmtMoney) : '--' }}</td>
+                <td data-label="持有收益" :class="colorClass(row.profit)">
+                  <div class="td-value-wrap">
+                    <div>{{ row.current ? fmtPrivate(row.profit, fmtMoney) : '--' }}</div>
+                    <div v-if="row.current" class="td-pct">{{ fmtPrivate(row.profitPct, fmtPct) }}</div>
+                  </div>
                 </td>
                 <td>
                   <div style="display:flex;gap:6px;">
@@ -506,5 +514,28 @@ onUnmounted(() => { if (posEsSource) posEsSource.close(); });
   gap: 10px;
   padding: 14px 20px 18px;
   border-top: 1px solid #f1f5f9;
+}
+
+/* 移动端弹窗：贴近底部，支持内容滚动 */
+@media (max-width: 640px) {
+  .modal-mask {
+    align-items: flex-end;
+    padding: 0;
+  }
+  .modal-box {
+    border-radius: 16px 16px 0 0;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    animation: modal-slide-up 0.25s ease;
+  }
+  .modal-body {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  @keyframes modal-slide-up {
+    from { transform: translateY(100%); opacity: 0.6; }
+    to   { transform: translateY(0);    opacity: 1; }
+  }
 }
 </style>

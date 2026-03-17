@@ -3,21 +3,27 @@
     <MarketIndex :indices="indices" :stale="staleIndex" :loading="loadingIndex" />
 
     <!-- 汇总栏 -->
-    <div class="summary-bar" style="margin-top:20px;">
-      <div class="summary-item">
-        <div class="label">总资产</div>
-        <div class="value">{{ fmtPrivate(summary.totalAsset, v => '¥' + fmtNum(v)) }}</div>
+    <div style="margin-top:20px;">
+      <div class="section-header" style="margin-bottom:10px;">
+        <span class="section-title">资产概览</span>
       </div>
-      <div class="summary-item">
-        <div class="label">累计收益</div>
-        <div class="value" :class="colorClass(summary.totalProfit)">
-          {{ fmtPrivate(summary.totalProfit, fmtMoney) }}
-          <span style="font-size:14px;margin-left:6px;">{{ fmtPrivate(summary.totalPct, fmtPct) }}</span>
+      <div class="summary-bar">
+        <div class="summary-item">
+          <div class="label">总资产</div>
+          <div class="value">{{ fmtPrivate(summary.totalAsset, v => '¥' + fmtNum(v)) }}</div>
         </div>
-      </div>
-      <div class="summary-item">
-        <div class="label">今日盈亏</div>
-        <div class="value" :class="colorClass(summary.todayProfit)">{{ fmtPrivate(summary.todayProfit, fmtMoney) }}</div>
+        <div class="summary-item">
+          <div class="label">累计收益</div>
+          <div class="value" :class="colorClass(summary.totalProfit)">
+            {{ fmtPrivate(summary.totalProfit, fmtMoney) }}
+          </div>
+          <div class="sub-value" :class="colorClass(summary.totalProfit)">{{ fmtPrivate(summary.totalPct, fmtPct) }}</div>
+        </div>
+        <div class="summary-item">
+          <div class="label">今日盈亏</div>
+          <div class="value" :class="colorClass(summary.todayProfit)">{{ fmtPrivate(summary.todayProfit, fmtMoney) }}</div>
+          <div class="sub-value" :class="colorClass(summary.todayProfit)">{{ fmtPrivate(summary.todayPct, fmtPct) }}</div>
+        </div>
       </div>
     </div>
 
@@ -70,15 +76,19 @@
           <tbody>
             <tr v-for="row in positionRows" :key="row.id">
               <td class="td-name">{{ row.name || row.code }}</td>
-              <td>{{ row.current ? fmtPrivate(row.current * row.shares, v => '¥' + fmtNum(v)) : '--' }}</td>
-              <td :class="colorClass(row.change_pct)">
-                <div>{{ row.current ? fmtNum(row.current) : '--' }}</div>
-                <div style="font-size:11px;">{{ row.current ? fmtPct(row.change_pct) : '' }}</div>
+              <td data-label="持仓总金额">{{ row.current ? fmtPrivate(row.current * row.shares, v => '¥' + fmtNum(v)) : '--' }}</td>
+              <td data-label="当日净值" :class="colorClass(row.change_pct)">
+                <div class="td-value-wrap">
+                  <div>{{ row.current ? fmtNum(row.current) : '--' }}</div>
+                  <div v-if="row.current" class="td-pct">{{ fmtPct(row.change_pct) }}</div>
+                </div>
               </td>
-              <td :class="colorClass(row.todayProfit)">{{ row.current ? fmtPrivate(row.todayProfit, fmtMoney) : '--' }}</td>
-              <td :class="colorClass(row.profit)">
-                {{ row.current ? fmtPrivate(row.profit, fmtMoney) : '--' }}
-                <span style="font-size:11px;">{{ row.current ? '(' + fmtPrivate(row.profitPct, fmtPct) + ')' : '' }}</span>
+              <td data-label="当日收益" :class="colorClass(row.todayProfit)">{{ row.current ? fmtPrivate(row.todayProfit, fmtMoney) : '--' }}</td>
+              <td data-label="持有收益" :class="colorClass(row.profit)">
+                <div class="td-value-wrap">
+                  <div>{{ row.current ? fmtPrivate(row.profit, fmtMoney) : '--' }}</div>
+                  <div v-if="row.current" class="td-pct">{{ fmtPrivate(row.profitPct, fmtPct) }}</div>
+                </div>
               </td>
             </tr>
           </tbody>
@@ -234,7 +244,8 @@ const summary = computed(() => {
     todayProfit += (r.current - r.close) * r.shares;
   }
   const totalProfit = totalAsset - totalCost;
-  return { totalAsset, totalProfit, totalPct: totalCost > 0 ? totalProfit / totalCost * 100 : 0, todayProfit };
+  const todayPct = totalAsset - todayProfit > 0 ? todayProfit / (totalAsset - todayProfit) * 100 : 0;
+  return { totalAsset, totalProfit, totalPct: totalCost > 0 ? totalProfit / totalCost * 100 : 0, todayProfit, todayPct };
 });
 
 const positionRows = computed(() => currentRows.value.slice(0, 8));

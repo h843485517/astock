@@ -66,6 +66,14 @@
   </div>
 </template>
 
+<style scoped>
+@media (max-width: 640px) {
+  /* 类型切换按钮在小屏占满整行 */
+  .type-switch { display: flex; width: 100%; }
+  .type-switch-btn { flex: 1; }
+}
+</style>
+
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';

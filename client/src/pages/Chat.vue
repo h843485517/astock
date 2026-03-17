@@ -2,25 +2,16 @@
   <div class="page chat-page">
     <!-- 标题 -->
     <div class="section-header" style="margin-bottom:16px;">
-      <span class="section-title">🤖 AI 投资顾问</span>
+      <span class="section-title">🤖 AI 投资顾问11</span>
       <span style="font-size:12px;color:var(--text-muted);">模型：{{ modelName }}</span>
     </div>
 
-    <!-- Ollama 未启动提示 -->
-    <div v-if="ollamaDown" class="info-card warn-card" style="margin-bottom:16px;">
-      <div style="font-size:16px;font-weight:700;margin-bottom:8px;">⚠️ AI 服务未启动</div>
-      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">
-        请先安装并启动 Ollama，然后拉取推荐模型：
-      </p>
-      <div class="code-block">
-        <span class="code-line"># 1. 安装 Ollama（macOS）</span>
-        <span class="code-line">brew install ollama</span>
-        <span class="code-line"># 2. 启动服务</span>
-        <span class="code-line">ollama serve</span>
-        <span class="code-line"># 3. 拉取推荐模型</span>
-        <span class="code-line">ollama pull qwen2.5:3b</span>
-      </div>
-      <button class="btn btn-secondary" style="margin-top:12px;" @click="ollamaDown = false">已启动，重试</button>
+    <!-- AI 服务不可用提示（对用户展示为 VIP 功能） -->
+    <div v-if="ollamaDown" class="info-card vip-card" style="margin-bottom:16px;">
+      <div class="vip-card-icon">👑</div>
+      <div class="vip-card-title">VIP 专属功能</div>
+      <p class="vip-card-desc">AI 投资顾问为高级会员专属功能，当前暂未向您开放。</p>
+      <button class="btn btn-secondary vip-retry-btn" @click="handleRetry">刷新重试</button>
     </div>
 
     <!-- 持仓标的选择器 -->
@@ -154,6 +145,11 @@ function fillSuggestion(text) {
   inputText.value = text;
 }
 
+function handleRetry() {
+  messages.value = [];
+  ollamaDown.value = false;
+}
+
 const SCROLL_THRESHOLD = 80; // px
 
 function isNearBottom() {
@@ -207,7 +203,7 @@ async function sendMessage() {
   ollamaDown.value = false;
 
   const codes = selectedCodes.value.join(',');
-  const url   = `/api/chat/stream?message=${encodeURIComponent(msg)}${codes ? '&codes=' + encodeURIComponent(codes) : ''}`;
+  const url   = `/api/chat/stream1?message=${encodeURIComponent(msg)}${codes ? '&codes=' + encodeURIComponent(codes) : ''}`;
 
   currentEs = new EventSource(url, { withCredentials: true });
 
@@ -223,8 +219,7 @@ async function sendMessage() {
     try {
       const obj = JSON.parse(e.data);
       if (obj.error === 'OLLAMA_NOT_AVAILABLE') {
-        messages.value[aiMsgIndex].content   = '⚠️ AI 服务未启动，请先安装并运行 Ollama。';
-        messages.value[aiMsgIndex].streaming = false;
+        messages.value = [];
         streaming.value  = false;
         ollamaDown.value = true;
         currentEs.close();
@@ -232,9 +227,9 @@ async function sendMessage() {
         return;
       }
       if (obj.error) {
-        messages.value[aiMsgIndex].content  += `\n\n❌ 错误：${obj.message || obj.error}`;
-        messages.value[aiMsgIndex].streaming = false;
-        streaming.value = false;
+        messages.value = [];
+        streaming.value  = false;
+        ollamaDown.value = true;
         currentEs.close();
         currentEs = null;
         return;
@@ -249,9 +244,16 @@ async function sendMessage() {
   currentEs.onerror = () => {
     if (streaming.value) {
       const cur = messages.value[aiMsgIndex];
-      cur.content  += cur.content ? '\n\n[连接中断]' : '[连接失败，请检查服务状态]';
-      cur.streaming = false;
-      streaming.value = false;
+      // 若尚无任何内容则视为服务不可用，触发 VIP 提示
+      if (!cur.content) {
+        cur.streaming    = false;
+        streaming.value  = false;
+        ollamaDown.value = true;
+      } else {
+        cur.content  += '\n\n[连接中断]';
+        cur.streaming = false;
+        streaming.value = false;
+      }
     }
     currentEs.close();
     currentEs = null;
@@ -262,6 +264,24 @@ async function sendMessage() {
 <style scoped>
 .chat-page { display: flex; flex-direction: column; height: calc(100vh - 56px - 48px); }
 
+@media (max-width: 640px) {
+  .chat-page {
+    height: auto;
+    min-height: calc(100dvh - var(--nav-height) - 68px - env(safe-area-inset-bottom));
+  }
+  .chat-input-area {
+    position: sticky;
+    bottom: 0;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+    margin: 0 -12px;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+    box-shadow: 0 -2px 12px rgba(0,0,0,0.06);
+  }
+}
+
 /* 信息卡片 */
 .info-card {
   background: var(--bg-card);
@@ -270,6 +290,19 @@ async function sendMessage() {
   padding: 14px 16px;
 }
 .warn-card { border-color: #fde68a; background: #fffbeb; }
+
+/* VIP 功能提示卡片 */
+.vip-card {
+  border-color: #fbbf24;
+  background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+  text-align: center;
+  padding: 28px 20px 22px;
+}
+.vip-card-icon  { font-size: 36px; margin-bottom: 10px; }
+.vip-card-title { font-size: 16px; font-weight: 700; color: #92400e; margin-bottom: 8px; }
+.vip-card-desc  { font-size: 13px; color: #78350f; margin-bottom: 16px; line-height: 1.6; }
+.vip-retry-btn  { font-size: 12px; color: #92400e; border-color: #fbbf24; background: rgba(255,255,255,0.6); }
+.vip-retry-btn:hover { background: rgba(255,255,255,0.9); }
 
 /* 代码块 */
 .code-block {

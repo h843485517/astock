@@ -260,4 +260,10 @@ async function handleSubmit() {
 }
 .lp-tip a { color: #4f9cf9; text-decoration: none; font-weight: 500; }
 .lp-tip a:hover { text-decoration: underline; }
+
+@media (max-width: 640px) {
+  .lp-card  { padding: 32px 20px 28px; }
+  .lp-logo  { font-size: 36px; }
+  .lp-title { font-size: 19px; }
+}
 </style>

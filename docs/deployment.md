@@ -220,7 +220,67 @@ docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 ---
 
-### 第二步：将本地代码上传到 ECS
+### 第二步：安装运行环境（Node.js、pnpm、MySQL）
+
+> 若使用 Docker Compose 方案（即后续第四步），Node.js 和 MySQL 均由容器提供，**可跳过本步骤**。若选择直接在宿主机运行（方案 A/B），则需手动安装。
+
+#### 安装 Node.js 20 + pnpm
+
+```bash
+# 通过 NodeSource 安装 Node.js 20 LTS
+curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+apt install -y nodejs
+
+# 验证版本
+node -v   # 应输出 v20.x.x
+npm -v
+
+# 安装 pnpm
+npm install -g pnpm
+pnpm -v
+```
+
+#### 安装 MySQL 8.0
+
+```bash
+# 安装 MySQL 8.0
+apt install -y mysql-server
+
+# 启动并设置开机自启
+systemctl start mysql
+systemctl enable mysql
+
+# 初始化安全配置（设置 root 密码、移除匿名账号等）
+mysql_secure_installation
+```
+
+登录 MySQL，创建专用数据库和账号（**不要直接用 root**）：
+
+```sql
+mysql -u root -p
+
+-- 创建数据库
+CREATE DATABASE astock CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- 创建专用账号，仅允许本机登录
+CREATE USER 'astock_user'@'localhost' IDENTIFIED BY '你的强密码';
+GRANT ALL PRIVILEGES ON astock.* TO 'astock_user'@'localhost';
+FLUSH PRIVILEGES;
+EXIT;
+```
+
+完成后在 `.env` 中填写对应配置：
+
+```ini
+MYSQL_HOST=127.0.0.1
+MYSQL_USER=astock_user
+MYSQL_PASSWORD=你的强密码
+MYSQL_DATABASE=astock
+```
+
+---
+
+### 第三步：将本地代码上传到 ECS
 
 本地代码需要先送到 ECS，有两种方式，**二选一**即可。
 
@@ -265,7 +325,7 @@ tar -xzf /opt/astock.tar.gz -C /opt/astock
 
 ---
 
-### 第三步：配置环境变量
+### 第四步：配置环境变量
 
 ```bash
 cd /opt/astock
@@ -287,7 +347,7 @@ JWT_SECRET=替换为64位以上随机字符串
 
 ---
 
-### 第四步：启动所有服务
+### 第五步：启动所有服务
 
 ```bash
 cd /opt/astock
@@ -314,7 +374,91 @@ docker compose logs app --tail=50 # 如果日志太长，只看最后 50 行
 
 ---
 
-### 第五步：后续更新代码
+### 附：单独启动 Ollama（不使用 Docker）
+
+如果 ECS 内存 ≥ 8G，也可以在宿主机上直接运行 Ollama，不依赖 Docker 容器：
+
+```bash
+# 1. 安装 Ollama（Linux）
+curl -fsSL https://ollama.com/install.sh | sh
+
+# 2. 启动 Ollama 服务（监听所有接口，供容器内的 app 访问）
+OLLAMA_HOST=0.0.0.0 ollama serve &
+
+# 3. 拉取推荐模型（首次约需几分钟，模型约 2GB）
+ollama pull qwen2.5:3b
+```
+
+启动后，在 `.env` 中将 Ollama 地址指向宿主机：
+
+```ini
+OLLAMA_BASE_URL=http://172.17.0.1:11434   # Docker 默认网桥网关地址
+```
+
+> ⚠️ `172.17.0.1` 为 Docker bridge 网关，容器内可通过此地址访问宿主机上的服务。也可用 `host.docker.internal`（需 Docker 20.10+）。
+
+用 systemd 实现开机自启：
+
+```bash
+systemctl enable ollama
+systemctl start ollama
+```
+
+#### ECS 内存不足时的替代方案
+
+> ⚠️ 以下「换用小模型」和「量化版模型」方案仍需将 Ollama **安装在 ECS 上**，只是减少内存占用。若 ECS 内存实在不足，推荐使用后两种**完全不在 ECS 安装 Ollama** 的方案。
+
+| 方案 | 是否需要装在 ECS | 适合场景 | 说明 |
+|------|----------------|---------|------|
+| **换用更小的模型** | ✅ 需要 | ECS 内存 4~6G | 用 `qwen2.5:0.5b`（~500MB）或 `qwen2.5:1.5b`（~1.5GB）替代默认的 `qwen2.5:3b` |
+| **使用量化版模型** | ✅ 需要 | ECS 内存 4G | 拉取 Q4 量化版：`ollama pull qwen2.5:3b-instruct-q4_K_M`，内存降至约 2GB |
+| **本地电脑运行 Ollama** | ❌ 不需要 | ECS 内存不足，本地有空闲机器 | 在本地 Mac/Windows 运行 Ollama，将 `.env` 中 `OLLAMA_BASE_URL` 改为本地公网 IP |
+| **接入云端 LLM API** | ❌ 不需要 | 不想自托管任何模型 | 改接 DeepSeek / 通义千问等兼容 OpenAI 格式的 API，按 token 计费，无需任何本地资源 |
+
+**方案一：换用小模型（仍在 ECS 安装，降低内存占用）**
+
+```bash
+ollama pull qwen2.5:0.5b
+
+# .env 中指定模型名
+OLLAMA_MODEL=qwen2.5:0.5b
+```
+
+**方案二：本地电脑运行 Ollama，ECS 零内存占用**
+
+在本地机器（Mac/Windows/Linux）上启动 Ollama：
+
+```bash
+# macOS 示例
+brew install ollama
+OLLAMA_HOST=0.0.0.0 ollama serve &
+ollama pull qwen2.5:3b
+```
+
+然后在 ECS 的 `.env` 中配置本地公网 IP：
+
+```ini
+OLLAMA_BASE_URL=http://<本地公网IP>:11434
+```
+
+> ⚠️ 需确保本地路由器将 11434 端口转发到运行 Ollama 的机器，并在防火墙放行该端口。
+
+**方案三：接入云端 API（推荐，最省心）**
+
+以 DeepSeek 为例，其 API 兼容 OpenAI 格式，修改 `src/services/chatService.js` 中的 baseURL 和 model 即可：
+
+```ini
+# .env 中配置
+OLLAMA_BASE_URL=https://api.deepseek.com/v1
+OLLAMA_MODEL=deepseek-chat
+OLLAMA_API_KEY=你的DeepSeek API Key
+```
+
+> 云端 API 按 token 计费，无需在任何服务器上安装模型，适合 ECS 内存紧张的场景。
+
+---
+
+### 第六步：后续更新代码
 
 **方式一（Git）：**
 ```bash
