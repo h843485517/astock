@@ -16,7 +16,13 @@ const cache = new Map();
 const CACHE_TTL       = parseInt(process.env.QUOTE_CACHE_TTL_MS || '60000', 10); // 持仓行情默认 60s
 const INDEX_CACHE_TTL = 10 * 1000; // 大盘指数 10s，与前端轮询对齐
 
+// ─── In-Flight 请求合并（防缓存穿透/Cache Stampede）─────────────
+// 当缓存失效瞬间有 N 个并发请求同时进来时，只向外部 API 发出 1 次请求，
+// 其余请求等待同一个 Promise 完成后共享结果。
+const inFlight = new Map(); // key -> Promise
+
 // 数据源健康状态（记录连续失败次数，失败多次时降级优先级）
+// 注意：Node.js 单线程事件循环保证同步的 ++ / -- 是原子的，不存在并发写冲突。
 const sourceHealth = { sina: 0, tencent: 0 };
 const SOURCE_FAIL_THRESHOLD = 3; // 连续失败超过此次数则降级
 
@@ -164,6 +170,11 @@ async function fetchStockQuote(codes, ttl = CACHE_TTL) {
   const hit = getCached(cacheKey, ttl);
   if (hit) return { ...hit, cached: true };
 
+  // ── In-Flight 合并：若已有相同 key 的请求正在进行，直接等待它 ──
+  if (inFlight.has(cacheKey)) {
+    return inFlight.get(cacheKey);
+  }
+
   // 根据健康状态决定尝试顺序：失败多则降级
   const sinaHealthy    = sourceHealth.sina    < SOURCE_FAIL_THRESHOLD;
   const tencentHealthy = sourceHealth.tencent < SOURCE_FAIL_THRESHOLD;
@@ -173,41 +184,49 @@ async function fetchStockQuote(codes, ttl = CACHE_TTL) {
     ? ['sina', 'tencent']
     : ['tencent', 'sina'];
 
-  let result = null;
-  let lastErr = null;
+  const promise = (async () => {
+    let result = null;
+    let lastErr = null;
 
-  for (const source of tryOrder) {
-    try {
-      if (source === 'sina') {
-        result = await fetchStockQuoteSina(codes, ttl);
-      } else {
-        result = await fetchStockQuoteTencent(codes);
+    for (const source of tryOrder) {
+      try {
+        if (source === 'sina') {
+          result = await fetchStockQuoteSina(codes, ttl);
+        } else {
+          result = await fetchStockQuoteTencent(codes);
+        }
+        // 成功：重置该源失败计数
+        sourceHealth[source] = 0;
+        break;
+      } catch (err) {
+        sourceHealth[source]++;
+        lastErr = err;
+        console.warn(`[QuoteService] ${source} 行情拉取失败（连续 ${sourceHealth[source]} 次）: ${err.message}，尝试备用源...`);
       }
-      // 成功：重置该源失败计数
-      sourceHealth[source] = 0;
-      break;
-    } catch (err) {
-      sourceHealth[source]++;
-      lastErr = err;
-      console.warn(`[QuoteService] ${source} 行情拉取失败（连续 ${sourceHealth[source]} 次）: ${err.message}，尝试备用源...`);
     }
-  }
 
-  if (!result) {
-    // 两个源均失败，尝试返回过期缓存（stale）
-    const stale = getStaleCached(cacheKey);
-    if (stale) {
-      console.warn('[QuoteService] 主备源均失败，返回过期缓存');
-      return { ...stale, stale: true };
+    if (!result) {
+      // 两个源均失败，尝试返回过期缓存（stale）
+      const stale = getStaleCached(cacheKey);
+      if (stale) {
+        console.warn('[QuoteService] 主备源均失败，返回过期缓存');
+        return { ...stale, stale: true };
+      }
+      throw lastErr || new Error('行情数据拉取失败');
     }
-    throw lastErr || new Error('行情数据拉取失败');
-  }
 
-  // 检查结果是否有效（避免缓存空数据）
-  if (Object.keys(result).length > 0) {
-    setCache(cacheKey, result);
-  }
-  return result;
+    // 检查结果是否有效（避免缓存空数据）
+    if (Object.keys(result).length > 0) {
+      setCache(cacheKey, result);
+    }
+    return result;
+  })();
+
+  // 注册 In-Flight，请求结束后（无论成功/失败）立即清除，避免 Map 内存泄漏
+  inFlight.set(cacheKey, promise);
+  promise.finally(() => inFlight.delete(cacheKey));
+
+  return promise;
 }
 
 /**
@@ -220,31 +239,43 @@ async function fetchFundQuote(code) {
   const hit = getCached(cacheKey);
   if (hit) return { ...hit, cached: true };
 
-  const response = await axios.get(
-    `http://fundgz.1234567.com.cn/js/${code}.js`,
-    {
-      headers: { Referer: 'http://fund.eastmoney.com' },
-      timeout: 5000,
-    }
-  );
+  // In-Flight 合并：避免缓存过期瞬间重复请求天天基金接口
+  if (inFlight.has(cacheKey)) {
+    return inFlight.get(cacheKey);
+  }
 
-  const text = response.data;
-  // JSONP 格式: jsonpgz({...});
-  const jsonMatch = text.match(/jsonpgz\((\{.*?\})\)/s);
-  if (!jsonMatch) throw new Error(`基金 ${code} 数据解析失败`);
+  const promise = (async () => {
+    const response = await axios.get(
+      `http://fundgz.1234567.com.cn/js/${code}.js`,
+      {
+        headers: { Referer: 'http://fund.eastmoney.com' },
+        timeout: 5000,
+      }
+    );
 
-  const obj = JSON.parse(jsonMatch[1]);
-  const result = {
-    code: obj.fundcode,
-    name: obj.name,
-    dwjz:  parseFloat(obj.dwjz)  || 0, // 昨日净值
-    gsz:   parseFloat(obj.gsz)   || 0, // 估算净值
-    gszzl: parseFloat(obj.gszzl) || 0, // 估算涨跌幅(%)
-    gztime: obj.gztime || '',          // 估值时间
-  };
+    const text = response.data;
+    // JSONP 格式: jsonpgz({...});
+    const jsonMatch = text.match(/jsonpgz\((\{.*?\})\)/s);
+    if (!jsonMatch) throw new Error(`基金 ${code} 数据解析失败`);
 
-  setCache(cacheKey, result);
-  return result;
+    const obj = JSON.parse(jsonMatch[1]);
+    const result = {
+      code: obj.fundcode,
+      name: obj.name,
+      dwjz:  parseFloat(obj.dwjz)  || 0, // 昨日净值
+      gsz:   parseFloat(obj.gsz)   || 0, // 估算净值
+      gszzl: parseFloat(obj.gszzl) || 0, // 估算涨跌幅(%)
+      gztime: obj.gztime || '',          // 估值时间
+    };
+
+    setCache(cacheKey, result);
+    return result;
+  })();
+
+  inFlight.set(cacheKey, promise);
+  promise.finally(() => inFlight.delete(cacheKey));
+
+  return promise;
 }
 
 // ─── 全球指数 ──────────────────────────────────────────────────
