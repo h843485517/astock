@@ -74,7 +74,7 @@ router.post('/register', registerLimiter, async (req, res) => {
     const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
     const { id } = await db.createUser(username, passwordHash);
 
-    const token = jwt.sign({ id, username }, getSecret(), { expiresIn: EXPIRES_IN });
+    const token = jwt.sign({ id, username, tokenVersion: 0 }, getSecret(), { expiresIn: EXPIRES_IN });
     const isHttps = req.protocol === 'https' || req.secure;
     res.cookie('token', token, {
       httpOnly: true,
@@ -108,7 +108,7 @@ router.post('/login', loginLimiter, async (req, res) => {
     // 异步更新最后登录时间，不阻塞响应
     db.updateLastLogin(user.id).catch(() => {});
 
-    const token = jwt.sign({ id: user.id, username: user.username }, getSecret(), { expiresIn: EXPIRES_IN });
+    const token = jwt.sign({ id: user.id, username: user.username, tokenVersion: user.token_version || 0 }, getSecret(), { expiresIn: EXPIRES_IN });
     const isHttps = req.protocol === 'https' || req.secure;
     res.cookie('token', token, {
       httpOnly: true,
@@ -139,7 +139,9 @@ router.put('/password', require('../middleware/auth').requireAuth, async (req, r
     if (!valid) return fail(res, '原密码错误', 401);
 
     const newHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
-    await db.pool.execute('UPDATE users SET password_hash = ? WHERE id = ?', [newHash, user.id]);
+    await db.pool.execute('UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE id = ?', [newHash, user.id]);
+    // 清除当前 Cookie，强制用户重新登录
+    res.clearCookie('token', { httpOnly: true, sameSite: 'strict' });
     ok(res, null);
   } catch (err) {
     console.error('[Auth] 修改密码失败:', err.message);

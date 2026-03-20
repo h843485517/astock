@@ -86,6 +86,11 @@ app.use(express.json({ limit: REQUEST_BODY_LIMIT }));
 app.use(express.urlencoded({ extended: false, limit: REQUEST_BODY_LIMIT }));
 
 // ─── API 路由 ─────────────────────────────────────────────────
+// Health check（不鉴权，供 Docker healthcheck 和监控使用）
+app.get('/api/health', (req, res) => {
+  res.json({ code: 0, data: { status: 'ok', uptime: process.uptime() } });
+});
+
 app.use('/api/auth',      authRouter);
 app.use('/api/positions', positionsRouter);
 app.use('/api/chat',      chatRouter);
@@ -121,13 +126,19 @@ app.use((err, req, res, next) => {
 // ─── 释放被占用的端口 ─────────────────────────────────────────
 function killPort(port) {
   return new Promise((resolve) => {
-    const { exec } = require('child_process');
-    exec(`lsof -ti:${port}`, (err, stdout) => {
+    // 安全校验：确保 port 为合法端口号，防止命令注入
+    const portNum = parseInt(port, 10);
+    if (!Number.isInteger(portNum) || portNum < 1 || portNum > 65535) {
+      console.error(`[killPort] 无效端口: ${port}`);
+      return resolve();
+    }
+    const { execFile } = require('child_process');
+    execFile('lsof', ['-ti:' + portNum], (err, stdout) => {
       if (err || !stdout.trim()) return resolve(); // 没有进程占用
-      const pids = stdout.trim().split('\n').filter(p => p !== String(process.pid));
+      const pids = stdout.trim().split('\n').filter(p => p && p !== String(process.pid));
       if (pids.length === 0) return resolve();
-      console.warn(`⚠️  端口 ${port} 被占用 (PID: ${pids.join(',')}), 正在释放...`);
-      exec(`kill -9 ${pids.join(' ')}`, () => {
+      console.warn(`⚠️  端口 ${portNum} 被占用 (PID: ${pids.join(',')}), 正在释放...`);
+      execFile('kill', ['-9', ...pids], () => {
         setTimeout(resolve, 500); // 等待端口释放
       });
     });

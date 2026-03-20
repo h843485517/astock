@@ -171,6 +171,37 @@ services:
 docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
 
+### 日志管理、资源限制与健康检查
+
+`docker-compose.yml` 已内置以下生产配置：
+
+```yaml
+app:
+  logging:
+    driver: json-file
+    options:
+      max-size: "50m"   # 单个日志文件最大 50MB
+      max-file: "5"     # 最多保留 5 个日志文件（共约 250MB）
+  deploy:
+    resources:
+      limits:
+        memory: 1g      # 容器内存上限 1GB，超出时被 OOM 杀死并自动重启
+  healthcheck:
+    test: ["CMD-SHELL", "wget -qO- http://localhost:${PORT:-3000}/api/health || exit 1"]
+    interval: 30s       # 每 30 秒检查一次
+    timeout: 5s         # 单次超时 5 秒
+    retries: 3          # 连续失败 3 次后标记为 unhealthy
+    start_period: 15s   # 容器启动后 15 秒内不计失败次数
+```
+
+| 配置项 | 作用 |
+|--------|------|
+| `logging` | 防止日志文件无限增长占满磁盘 |
+| `memory: 1g` | 防止 Node.js 内存泄漏拖垮宿主机 |
+| `healthcheck` | Docker 自动检测进程是否正常工作，`unhealthy` 后配合 `restart: unless-stopped` 自动恢复 |
+
+> `GET /api/health` 端点无需认证，返回 `{"code":0,"data":{"status":"ok","uptime":xxx}}`，专为健康检查设计。
+
 ### 与 Nginx 叠加
 
 可在 compose 中增加 Nginx 容器处理 SSL 和静态缓存，Node.js 容器只暴露内部端口，不对外开放。

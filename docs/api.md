@@ -128,6 +128,9 @@
 { "code": 0, "data": null }
 ```
 
+**备注**  
+修改密码成功后服务端会自动清除客户端 Token Cookie，并将 `users.token_version` 加 1，使所有旧 Token 立即失效（包括其他设备上的登录会话）。
+
 **失败响应**
 | HTTP | message |
 |------|---------|
@@ -385,15 +388,29 @@ data: {"data":{"sh000001":{...},...},"stale":false}
 
 > 需登录；依赖 Ollama 本地服务（`OLLAMA_BASE_URL` / `OLLAMA_MODEL`，推荐使用 `qwen2.5:3b`）。
 
-### GET /api/chat/stream — AI 流式问答
+### POST /api/chat/stream — AI 流式问答
 
 **需要登录** · **响应类型：`text/event-stream`**
 
-**Query 参数**
-| 参数 | 必填 | 说明 |
+> ⚠️ 原 `GET /api/chat/stream`（使用 Query 参数）已更改为 **POST**，参数通过 JSON 请求体传递，解决了历史记录超长时 URL 越界的问题。
+
+**请求体**
+```json
+{
+  "message": "帮我分析一下当前持仓",
+  "codes":   "sh600519,000001",
+  "history": [
+    { "role": "user",      "content": "上次问的问题" },
+    { "role": "assistant", "content": "上次的回复" }
+  ]
+}
+```
+
+| 字段 | 必填 | 说明 |
 |------|------|------|
 | `message` | ✅ | 用户问题，超过 500 字自动截断 |
 | `codes` | 可选 | 逗号分隔的标的代码，附带近 30 日历史 K 线送入上下文 |
+| `history` | 可选 | 多轮对话历史（最近 10 轮 = 20 条），每条 `content` 超 1000 字截断 |
 
 **SSE 事件格式**
 ```
@@ -444,6 +461,24 @@ data: [DONE]
 |------|---------|
 | 400 | 缺少 code 参数 |
 | 502 | 历史行情获取失败 |
+
+---
+
+## 系统模块
+
+### GET /api/health — 健康检查
+
+无需登录，供 Docker healthcheck 和外部监控使用。
+
+**成功响应** `200`
+```json
+{ "code": 0, "data": { "status": "ok", "uptime": 123.456 } }
+```
+
+| 字段 | 说明 |
+|------|------|
+| `status` | 固定为 `"ok"` |
+| `uptime` | 进程已运行秒数（`process.uptime()`）|
 
 ---
 

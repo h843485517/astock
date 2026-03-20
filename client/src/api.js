@@ -4,6 +4,13 @@ async function request(url, options = {}) {
     headers: { 'Content-Type': 'application/json', ...options.headers },
     ...options,
   });
+  // 401 未授权时清除登录态缓存
+  if (res.status === 401) {
+    try {
+      const { clearAuthCache } = await import('./router/index.js');
+      clearAuthCache();
+    } catch (_) {}
+  }
   const json = await res.json();
   if (json.code !== 0) throw new Error(json.message || '请求失败');
   return json;

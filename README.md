@@ -193,7 +193,8 @@ docker-compose up -d
 │   │   └── MarketIndex.vue      # 大盘指数组件（A股 + 全球指数展示）
 │   ├── composables/
 │   │   ├── useFormat.js         # 统一格式化（金额/百分比/千分位/隐私遮罩/涨跌色）
-│   │   └── usePrivacy.js        # 隐私遮罩全局单例状态
+│   │   ├── usePrivacy.js        # 隐私遮罩全局单例状态
+│   │   └── usePositionStream.js # 持仓 SSE 流 + 手动刷新 composable（Home/Positions 共用）
 │   ├── router/index.js          # 路由配置 + 全局登录态守卫
 │   ├── api.js                   # 前端 API 封装（持仓/行情/认证/历史快照）
 │   └── assets/style.css         # 全局样式（CSS 变量 + 深色/浅色模式 + 响应式）
@@ -232,16 +233,20 @@ docker-compose up -d
 | GET  | `/api/history/snapshots` | 按年月查询快照列表 |
 | GET  | `/api/history/snapshots/range` | 按日期范围查询快照 |
 | GET  | `/api/history/snapshots/:date` | 查询指定日期快照 |
-| GET  | `/api/chat/stream` | AI 对话 SSE 流（需登录）|
+| POST | `/api/chat/stream` | AI 对话 SSE 流（POST，请求体传参）|
 | GET  | `/api/chat/history-quote` | 获取标的近 30 日历史行情 |
+| GET  | `/api/health` | 健康检查（无需登录，供监控/Docker 使用）|
 
 ## 安全说明
 
 - 密码使用 bcrypt（cost=12）哈希存储，从不明文传输
 - JWT 存于 HttpOnly + SameSite=Strict Cookie，防 XSS 窃取
+- **修改密码后旧 Token 立即失效**：`users` 表维护 `token_version`，改密码时自增；`requireAuth` 中间件在 JWT 验证通过后比对版本号，不匹配返回 401，使其他设备上的旧登录会话同步失效
 - 登录接口独立限流（5分钟/10次），成功登录不计入次数；注册独立限流（1小时/5次）
 - 登录时无论用户是否存在均执行 bcrypt.compare，防止时序攻击
 - 所有持仓操作强制校验 `user_id`，防止越权访问
+- **Chat XSS 加固**：AI 回复内容经完整 HTML 转义（`&`、`<`、`>`、`"`、`'`），防止 AI 生成内容注入 DOM
+- **持仓接口错误脱敏**：所有 `catch` 块返回通用提示，内部 DB 错误仅记录至服务端日志，不暴露给客户端
 - helmet CSP 限制脚本/样式/字体来源，防注入攻击；HTTPS 部署时自动启用 HSTS
 - 请求体限制 100kb，防超大请求攻击
 - 全局 API 限流（15分钟/300次），防暴力爬取

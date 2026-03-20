@@ -160,7 +160,20 @@ docker compose logs app --tail=50  # 只看最后 50 行
 
 启动成功后访问：`http://<你的公网IP>:3000`
 
----
+### 容器健康状态与资源限制
+
+`docker-compose.yml` 已内置以下配置，无需额外操作：
+
+- **healthcheck**：每 30s 探测 `GET /api/health`，连续失败 3 次后容器标记为 `unhealthy`，配合 `restart: unless-stopped` 自动重启
+- **日志滚动**：每个日志文件最大 50MB，最多保留 5 个文件，防止日志堆满磁盘
+- **内存限制**：容器内存上限 1GB，超出时 OOM 触发重启，防止内存泄漏拖垮宿主机
+
+查看容器健康状态：
+
+```bash
+docker compose ps            # STATUS 列显示 healthy / unhealthy
+docker inspect astock-app --format '{{.State.Health.Status}}'
+```
 
 ## 第六步：后续更新代码
 

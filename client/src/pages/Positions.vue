@@ -282,17 +282,12 @@
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import * as api from '../api.js';
 import { useFormat } from '../composables/useFormat.js';
+import { usePositionStream } from '../composables/usePositionStream.js';
 
 const { fmtNum, fmtMoney, fmtPct, fmtPrivate, colorClass } = useFormat();
 
-const positions = ref([]);
-const quotes    = ref({});
-const loading   = ref(true);
-const sseActive = ref(false);
-const activeTab = ref('全部');
-const searchKeyword = ref('');
-
-let posEsSource = null;
+const activeTab      = ref('全部');
+const searchKeyword  = ref('');
 
 // ── 编辑弹窗状态 ─────────────────────────────────────────────
 const editModal     = reactive({ show: false, id: null, name: '', code: '', type: '' });
@@ -388,53 +383,17 @@ function checkAlerts(rows) {
   }
 }
 
-function connectPositionSSE() {
-  posEsSource = new EventSource('/api/positions/stream', { withCredentials: true });
-  posEsSource.onmessage = (e) => {
-    try {
-      const payload = JSON.parse(e.data);
-      if (payload.code === 0) {
-        positions.value = payload.positions || [];
-        quotes.value    = payload.quotes    || {};
-        // 每次 SSE 推送后检查止损/目标价
-        checkAlerts(enriched.value);
-      }
-      loading.value   = false;
-      sseActive.value = true;
-    } catch (err) {
-      console.error('[SSE] 持仓数据解析失败:', err);
-    }
-  };
-  posEsSource.onerror = () => { sseActive.value = false; };
-}
-
-// ── 手动刷新 ─────────────────────────────────────────────────
-async function manualRefresh() {
-  loading.value = true;
-  try {
-    const posRes = await api.getPositions();
-    positions.value  = posRes.data;
-    const stockCodes = posRes.data.filter(p => p.type === 'stock').map(p => p.code);
-    const fundCodes  = posRes.data.filter(p => p.type === 'fund').map(p => p.code);
-    const results    = {};
-    if (stockCodes.length > 0) {
-      try { Object.assign(results, (await api.getQuote(stockCodes)).data); } catch (_) {}
-    }
-    for (const code of fundCodes) {
-      try {
-        const d = (await api.getFundQuote(code)).data;
-        const pct = d.gszzl || 0;
-        results[code] = { name: d.name, current: +(d.dwjz*(1+pct/100)).toFixed(4), close: d.dwjz, change_pct: pct, change_amount: +(d.dwjz*pct/100).toFixed(4) };
-      } catch (_) {}
-    }
-    quotes.value = results;
-    window.showToast('持仓已刷新', 'success');
-  } catch (e) {
-    window.showToast('持仓数据加载失败：' + e.message, 'error');
-  } finally {
-    loading.value = false;
-  }
-}
+// ── 持仓 SSE（由 composable 管理）────────────────────────────
+// onData 在每次 SSE 推送后触发，此时 enriched 已被响应式更新
+const {
+  positions,
+  quotes,
+  loading,
+  sseActive,
+  connect,
+  disconnect,
+  manualRefresh,
+} = usePositionStream({ onData: () => checkAlerts(enriched.value) });
 
 // ── 计算属性 ──────────────────────────────────────────────────
 const enriched = computed(() => positions.value.map(pos => {
@@ -530,8 +489,8 @@ async function handleDelete(pos) {
 
 // ── 格式化（由 useFormat composable 提供）────────────────────
 
-onMounted(connectPositionSSE);
-onUnmounted(() => { if (posEsSource) posEsSource.close(); });
+onMounted(connect);
+onUnmounted(disconnect);
 </script>
 
 <style scoped>

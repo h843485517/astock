@@ -30,7 +30,6 @@
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^4.6.2",
-    "browser-sync": "^3.0.4",
     "concurrently": "^9.2.1",
     "nodemon": "^3.0.2",
     "vite": "^5.4.21"

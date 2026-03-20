@@ -136,7 +136,7 @@ const aiDown          = ref(false);
 const aiDownReason    = ref('');
 const messagesEl      = ref(null);
 
-let currentEs = null;
+let abortController = null;
 
 const suggestions = [
   '帮我分析一下当前持仓的风险',
@@ -189,7 +189,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-  if (currentEs) currentEs.close();
+  if (abortController) abortController.abort();
 });
 
 function toggleCode(code) {
@@ -225,7 +225,7 @@ async function scrollToBottom(force = false) {
 
 function stopStreaming() {
   if (!streaming.value) return;
-  if (currentEs) { currentEs.close(); currentEs = null; }
+  if (abortController) { abortController.abort(); abortController = null; }
   const last = [...messages.value].reverse().find(m => m.role === 'assistant' && m.streaming);
   if (last) {
     last.content  += '\n\n[已中断]';
@@ -235,12 +235,14 @@ function stopStreaming() {
   saveHistory();
 }
 
-// 将换行转为 <br>，简单转义 XSS
+// 将换行转为 <br>，转义 HTML 特殊字符防 XSS
 function renderText(text) {
   return text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
     .replace(/\n/g, '<br>');
 }
 
@@ -248,101 +250,119 @@ async function sendMessage() {
   const msg = inputText.value.trim();
   if (!msg || streaming.value) return;
 
-  // 关闭上一个连接（如有）
-  if (currentEs) { currentEs.close(); currentEs = null; }
+  // 中断上一个未完成的请求（如有）
+  if (abortController) { abortController.abort(); abortController = null; }
 
   messages.value.push({ role: 'user', content: msg });
   inputText.value = '';
   await scrollToBottom(true);
 
   messages.value.push({ role: 'assistant', content: '', streaming: true });
-  // 通过响应式数组索引访问，确保 Vue 3 proxy 能追踪到属性变更并触发视图更新
   const aiMsgIndex = messages.value.length - 1;
   streaming.value = true;
   aiDown.value = false;
   aiDownReason.value = '';
 
-  const codes = selectedCodes.value.join(',');
-
-  // 收集历史消息（排除当前正在流式输出的消息），传给后端以支持多轮对话
+  // 收集历史消息传给后端
   const history = messages.value
-    .slice(0, -1) // 去掉最后那条空的 assistant 消息
+    .slice(0, -1)
     .filter(m => !m.streaming && m.content)
     .map(m => ({ role: m.role, content: m.content }));
 
-  const historyParam = history.length > 0
-    ? '&history=' + encodeURIComponent(JSON.stringify(history))
-    : '';
+  abortController = new AbortController();
 
-  const url = `/api/chat/stream?message=${encodeURIComponent(msg)}${codes ? '&codes=' + encodeURIComponent(codes) : ''}${historyParam}`;
+  try {
+    const resp = await fetch('/api/chat/stream', {
+      method:      'POST',
+      headers:     { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body:        JSON.stringify({
+        message: msg,
+        codes:   selectedCodes.value.join(',') || undefined,
+        history: history.length > 0 ? history : undefined,
+      }),
+      signal: abortController.signal,
+    });
 
-  currentEs = new EventSource(url, { withCredentials: true });
-
-  currentEs.onmessage = async (e) => {
-    if (e.data === '[DONE]') {
-      messages.value[aiMsgIndex].streaming = false;
-      streaming.value = false;
-      currentEs.close();
-      currentEs = null;
-      saveHistory(); // 每次 AI 回复完成后持久化
-      await scrollToBottom(true);
-      return;
+    if (!resp.ok || !resp.body) {
+      throw new Error(`HTTP ${resp.status}`);
     }
-    try {
-      const obj = JSON.parse(e.data);
-      if (obj.error) {
-        messages.value[aiMsgIndex].streaming = false;
-        streaming.value = false;
-        currentEs.close();
-        currentEs = null;
 
-        // 根据错误类型给出不同提示
-        if (obj.error === 'OLLAMA_NOT_AVAILABLE') {
-          // VIP 用户：Ollama 未启动
-          messages.value[aiMsgIndex].content = '⚠️ VIP 高级 AI（Ollama）当前不可用，请联系管理员检查服务。';
+    const reader  = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let   buffer  = '';
+
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      // SSE 事件以 \n\n 分割
+      const events = buffer.split('\n\n');
+      buffer = events.pop(); // 最后一段可能不完整，留待下次拼接
+
+      for (const event of events) {
+        const line = event.trim();
+        if (!line || line.startsWith(':')) continue; // 心跳或注释行
+        const dataLine = line.startsWith('data:') ? line.slice(5).trim() : line;
+
+        if (!dataLine || dataLine === '[DONE]') {
           messages.value[aiMsgIndex].streaming = false;
-        } else if (obj.error === 'FREE_API_NO_KEY') {
-          // 免费用户：未配置 API Key
-          messages.value = messages.value.slice(0, -1); // 移除空 AI 消息
-          aiDown.value = true;
-          aiDownReason.value = '免费 AI 服务尚未配置 API Key，请联系管理员完成配置后再使用。';
-        } else if (obj.error === 'FREE_API_AUTH_FAIL') {
-          messages.value = messages.value.slice(0, -1);
-          aiDown.value = true;
-          aiDownReason.value = '免费 AI 服务 API Key 无效或已过期，请联系管理员更新。';
-        } else if (obj.error === 'FREE_API_UNAVAILABLE') {
-          messages.value[aiMsgIndex].content = '⚠️ 免费 AI 服务暂时不可用（网络超时），请稍后重试。';
-          messages.value[aiMsgIndex].streaming = false;
-        } else {
-          messages.value[aiMsgIndex].content = `⚠️ AI 服务出现错误：${obj.message || '请稍后重试'}`;
-          messages.value[aiMsgIndex].streaming = false;
+          streaming.value = false;
+          abortController = null;
+          saveHistory();
+          await scrollToBottom(true);
+          return;
         }
-        return;
-      }
-      if (obj.token) {
-        messages.value[aiMsgIndex].content += obj.token;
-        await scrollToBottom();
-      }
-    } catch (_) {}
-  };
 
-  currentEs.onerror = () => {
-    if (streaming.value) {
-      const cur = messages.value[aiMsgIndex];
-      // 若尚无任何内容则视为服务不可用
-      if (!cur.content) {
-        cur.content   = '⚠️ 连接 AI 服务失败，请检查网络或稍后重试。';
-        cur.streaming = false;
-        streaming.value = false;
-      } else {
-        cur.content  += '\n\n[连接中断]';
-        cur.streaming = false;
-        streaming.value = false;
+        try {
+          const obj = JSON.parse(dataLine);
+          if (obj.error) {
+            messages.value[aiMsgIndex].streaming = false;
+            streaming.value = false;
+            abortController = null;
+
+            if (obj.error === 'OLLAMA_NOT_AVAILABLE') {
+              messages.value[aiMsgIndex].content = '⚠️ VIP 高级 AI（Ollama）当前不可用，请联系管理员检查服务。';
+              messages.value[aiMsgIndex].streaming = false;
+            } else if (obj.error === 'FREE_API_NO_KEY') {
+              messages.value = messages.value.slice(0, -1);
+              aiDown.value = true;
+              aiDownReason.value = '免费 AI 服务尚未配置 API Key，请联系管理员完成配置后再使用。';
+            } else if (obj.error === 'FREE_API_AUTH_FAIL') {
+              messages.value = messages.value.slice(0, -1);
+              aiDown.value = true;
+              aiDownReason.value = '免费 AI 服务 API Key 无效或已过期，请联系管理员更新。';
+            } else if (obj.error === 'FREE_API_UNAVAILABLE') {
+              messages.value[aiMsgIndex].content = '⚠️ 免费 AI 服务暂时不可用（网络超时），请稍后重试。';
+              messages.value[aiMsgIndex].streaming = false;
+            } else {
+              messages.value[aiMsgIndex].content = `⚠️ AI 服务出现错误：${obj.message || '请稍后重试'}`;
+              messages.value[aiMsgIndex].streaming = false;
+            }
+            return;
+          }
+          if (obj.token) {
+            messages.value[aiMsgIndex].content += obj.token;
+            await scrollToBottom();
+          }
+        } catch (_) {}
       }
     }
-    currentEs.close();
-    currentEs = null;
-  };
+  } catch (err) {
+    if (err.name === 'AbortError') return; // 主动中断，不做任何处理
+    const cur = messages.value[aiMsgIndex];
+    if (cur) {
+      cur.content   = cur.content
+        ? cur.content + '\n\n[连接中断]'
+        : '⚠️ 连接 AI 服务失败，请检查网络或稍后重试。';
+      cur.streaming = false;
+    }
+    streaming.value = false;
+    abortController = null;
+  }
 }
 </script>
 

@@ -38,6 +38,13 @@ async function initDatabase() {
       if (e.errno !== 1060) console.warn('[DB] ALTER users 字段警告:', e.message);
     }
 
+    // 存量数据兼容：添加 token_version 列（用于改密码后使旧 Token 失效）
+    try {
+      await pool.execute(`ALTER TABLE users ADD COLUMN token_version INT UNSIGNED NOT NULL DEFAULT 0`);
+    } catch (e) {
+      if (e.errno !== 1060) console.warn('[DB] ALTER users 字段警告:', e.message);
+    }
+
     // 持仓表（含 user_id）
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS positions (
@@ -91,8 +98,7 @@ async function initDatabase() {
         total_pct     DECIMAL(10,4) NOT NULL DEFAULT 0,
         position_count INT UNSIGNED NOT NULL DEFAULT 0,
         created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE KEY uk_user_date (user_id, snap_date),
-        INDEX idx_user_date (user_id, snap_date)
+        UNIQUE KEY uk_user_date (user_id, snap_date)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
@@ -323,6 +329,19 @@ async function setUserVip(id, isVip) {
   );
 }
 
+/**
+ * 查询用户 token_version（用于 JWT 校验）
+ * @param {number} id
+ * @returns {number}
+ */
+async function getTokenVersion(id) {
+  const [rows] = await pool.execute(
+    'SELECT token_version FROM users WHERE id = ? LIMIT 1',
+    [id]
+  );
+  return rows[0] ? (rows[0].token_version || 0) : -1;
+}
+
 module.exports = {
   pool,
   initDatabase,
@@ -332,6 +351,7 @@ module.exports = {
   updateLastLogin,
   getUserById,
   setUserVip,
+  getTokenVersion,
   // 持仓相关
   getAllPositions,
   createPosition,

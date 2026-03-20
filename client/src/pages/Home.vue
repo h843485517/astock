@@ -103,24 +103,31 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import MarketIndex from '../components/MarketIndex.vue';
 import * as api from '../api.js';
 import { useFormat } from '../composables/useFormat.js';
+import { usePositionStream } from '../composables/usePositionStream.js';
 
 const { fmtNum, fmtMoney, fmtPct, fmtPrivate, colorClass } = useFormat();
 
 const indices      = ref({});
-const positions    = ref([]);
-const quotes       = ref({});
 const loadingIndex = ref(false);
-const loadingPos   = ref(true);
 const staleIndex   = ref(false);
-const sseActive    = ref(false);
 const activeTab    = ref('全部');
 const prevDayAsset = ref(0); // 昨日收盘总资产，用于计算今日涨跌幅基准
 
-let esSource       = null; // 大盘 SSE
-let posEsSource    = null; // 持仓 SSE
-let pollTimer      = null;
-let snapshotTimeout  = null; // setTimeout 句柄（等待到 15:05）
-let snapshotInterval = null; // setInterval 句柄（每 24h 重复）
+let esSource    = null; // 大盘 SSE
+let pollTimer   = null;
+let snapshotTimeout  = null;
+let snapshotInterval = null;
+
+// ── 持仓 SSE（由 composable 管理）────────────────────────────
+const {
+  positions,
+  quotes,
+  loading:       loadingPos,
+  sseActive,
+  connect:       connectPositionSSE,
+  disconnect:    disconnectPositionSSE,
+  manualRefresh: refresh,
+} = usePositionStream({ onData: () => throttledSnapshot() });
 
 // 获取昨日快照资产，作为今日涨跌幅的基准
 async function loadPrevDayAsset() {
@@ -195,59 +202,6 @@ function startPolling() {
   if (pollTimer) return;
   pollIndex();
   pollTimer = setInterval(pollIndex, 10000);
-}
-
-// ── 持仓 SSE ─────────────────────────────────────────────────
-function connectPositionSSE() {
-  posEsSource = new EventSource('/api/positions/stream', { withCredentials: true });
-
-  posEsSource.onmessage = (e) => {
-    try {
-      const payload = JSON.parse(e.data);
-      if (payload.code === 0) {
-        positions.value = payload.positions || [];
-        quotes.value    = payload.quotes    || {};
-        // 每次收到新数据，尝试节流存档
-        throttledSnapshot();
-      }
-      loadingPos.value = false;
-      sseActive.value  = true;
-    } catch (err) {
-      console.error('[SSE] 持仓数据解析失败:', err);
-    }
-  };
-
-  posEsSource.onerror = () => {
-    sseActive.value = false;
-  };
-}
-
-// ── 手动刷新（强制 HTTP 拉取）────────────────────────────────
-async function refresh() {
-  loadingPos.value = true;
-  try {
-    const posRes = await api.getPositions();
-    positions.value  = posRes.data;
-    const stockCodes = posRes.data.filter(p => p.type === 'stock').map(p => p.code);
-    const fundCodes  = posRes.data.filter(p => p.type === 'fund').map(p => p.code);
-    const results    = {};
-    if (stockCodes.length > 0) {
-      try { Object.assign(results, (await api.getQuote(stockCodes)).data); } catch (_) {}
-    }
-    for (const code of fundCodes) {
-      try {
-        const d   = (await api.getFundQuote(code)).data;
-        const pct = d.gszzl || 0;
-        results[code] = { name: d.name, current: +(d.dwjz*(1+pct/100)).toFixed(4), close: d.dwjz, change_pct: pct, change_amount: +(d.dwjz*pct/100).toFixed(4) };
-      } catch (_) {}
-    }
-    quotes.value = results;
-    window.showToast('持仓已刷新', 'success');
-  } catch (e) {
-    window.showToast('持仓数据加载失败：' + e.message, 'error');
-  } finally {
-    loadingPos.value = false;
-  }
 }
 
 // ── 计算属性 ──────────────────────────────────────────────────
@@ -375,9 +329,9 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (esSource)         esSource.close();
-  if (posEsSource)      posEsSource.close();
   if (pollTimer)        clearInterval(pollTimer);
   if (sseRetryTimer)    clearTimeout(sseRetryTimer);
+  disconnectPositionSSE();
   if (snapshotTimeout)  clearTimeout(snapshotTimeout);
   if (snapshotInterval) clearInterval(snapshotInterval);
 });

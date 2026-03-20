@@ -195,6 +195,9 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside));
 async function handleLogout() {
   menuOpen.value = false;
   try { await api.logout(); } catch (_) {}
+  // 清除路由守卫的登录态缓存
+  const { clearAuthCache } = await import('./router/index.js');
+  clearAuthCache();
   username.value = '';
   router.push('/login');
 }

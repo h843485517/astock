@@ -44,18 +44,27 @@ async function buildPositionPayload(userId) {
   if (stockCodes.length > 0) {
     try { Object.assign(quotes, await fetchStockQuote(stockCodes)); } catch (_) {}
   }
-  for (const code of fundCodes) {
-    try {
-      const d   = await fetchFundQuote(code);
-      const pct = d.gszzl || 0;
-      quotes[code] = {
-        name:         d.name,
-        current:      +(d.dwjz * (1 + pct / 100)).toFixed(4),
-        close:        d.dwjz,
-        change_pct:   pct,
-        change_amount: +(d.dwjz * pct / 100).toFixed(4),
-      };
-    } catch (_) {}
+  // 基金行情并行请求（替代逐只串行，大幅降低延迟）
+  if (fundCodes.length > 0) {
+    const results = await Promise.allSettled(
+      fundCodes.map(async (code) => {
+        const d   = await fetchFundQuote(code);
+        const pct = d.gszzl || 0;
+        return {
+          code,
+          data: {
+            name:         d.name,
+            current:      +(d.dwjz * (1 + pct / 100)).toFixed(4),
+            close:        d.dwjz,
+            change_pct:   pct,
+            change_amount: +(d.dwjz * pct / 100).toFixed(4),
+          },
+        };
+      })
+    );
+    for (const r of results) {
+      if (r.status === 'fulfilled') quotes[r.value.code] = r.value.data;
+    }
   }
   return { positions, quotes };
 }
@@ -69,7 +78,8 @@ router.get('/', async (req, res) => {
     const positions = await db.getAllPositions(req.user.id);
     ok(res, positions);
   } catch (err) {
-    fail(res, err.message, 500);
+    console.error('[Positions] GET /', err);
+    fail(res, '操作失败，请稍后重试', 500);
   }
 });
 
@@ -143,10 +153,22 @@ router.post('/', async (req, res) => {
     // 异步回填证券名称，不阻塞响应
     backfillName(result.id, type, normalizedCode).catch(() => {});
 
-    const position = await db.getPositionById(result.id);
-    ok(res, position);
+    // 用输入值 + insertId 构造返回对象，避免额外 SELECT 查询
+    ok(res, {
+      id:          result.id,
+      user_id:     req.user.id,
+      type,
+      code:        normalizedCode,
+      name:        '',
+      shares:      Number(shares),
+      cost_price:  Number(cost_price),
+      group_name:  group_name || '',
+      stop_loss:   null,
+      take_profit: null,
+    });
   } catch (err) {
-    fail(res, err.message, 500);
+    console.error('[Positions] POST /', err);
+    fail(res, '操作失败，请稍后重试', 500);
   }
 });
 
@@ -190,9 +212,11 @@ router.put('/:id', async (req, res) => {
   try {
     const result = await db.updatePosition(id, updates, req.user.id);
     if (result.changes === 0) return fail(res, '更新失败', 400);
-    ok(res, await db.getPositionById(id));
+    // 合并已有记录与更新字段返回，避免额外 SELECT 查询
+    ok(res, { ...existing, ...updates });
   } catch (err) {
-    fail(res, err.message, 500);
+    console.error('[Positions] PUT /:id', err);
+    fail(res, '操作失败，请稍后重试', 500);
   }
 });
 
@@ -211,7 +235,8 @@ router.delete('/:id', async (req, res) => {
     if (result.changes === 0) return fail(res, '持仓不存在', 404);
     ok(res, { id });
   } catch (err) {
-    fail(res, err.message, 500);
+    console.error('[Positions] DELETE /:id', err);
+    fail(res, '操作失败，请稍后重试', 500);
   }
 });
 
