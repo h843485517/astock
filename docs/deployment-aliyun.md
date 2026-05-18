@@ -132,6 +132,7 @@ JWT_SECRET=替换为64位以上随机字符串
 OPENAI_API_BASE=https://open.bigmodel.cn/api/paas/v4
 OPENAI_API_KEY=你的智谱APIKey    # 注册：https://open.bigmodel.cn
 OPENAI_FREE_MODEL=GLM-4-Flash-250414
+
 ```
 
 > ⚠️ `MYSQL_PASSWORD` 和 `JWT_SECRET` 务必设置强密码/密钥，不要使用简单字符串。
