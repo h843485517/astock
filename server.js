@@ -20,6 +20,32 @@ if (cluster.isPrimary && !IS_DEV) {
     cluster.fork();
   });
 
+  // 主进程：启动行情轮询，通过 IPC 广播给所有 Worker（避免每个 Worker 各自重复轮询）
+  const { fetchMarketIndex } = require('./src/services/quoteService');
+  const PRIMARY_SSE_INTERVAL = parseInt(process.env.SSE_INTERVAL_MS || '10000', 10);
+
+  async function primaryPoll() {
+    try {
+      const result = await fetchMarketIndex();
+      for (const id in cluster.workers) {
+        try { cluster.workers[id].send({ type: 'index-update', payload: result }); } catch (_) {}
+      }
+    } catch (err) {
+      console.error('[Primary IndexPolling] 抓取失败:', err.message);
+    }
+    setTimeout(primaryPoll, PRIMARY_SSE_INTERVAL);
+  }
+  primaryPoll();
+
+  // 主进程：启动每日自动快照（仅在主进程运行，避免多 Worker 重复执行）
+  const { initDatabase } = require('./src/db/database');
+  const { startDailySnapshotScheduler } = require('./src/services/snapshotService');
+  initDatabase().then(() => {
+    startDailySnapshotScheduler();
+  }).catch(err => {
+    console.error('[Primary] 数据库初始化失败，定时快照未启动:', err.message);
+  });
+
   return; // 主进程不执行 HTTP 逻辑
 }
 
@@ -35,7 +61,7 @@ const quoteRouter                = require('./src/routes/quote');
 const authRouter                 = require('./src/routes/auth');
 const chatRouter                 = require('./src/routes/chat');
 const historyRouter              = require('./src/routes/history');
-const { startIndexPolling }      = require('./src/services/quoteService');
+const { startIndexPolling, updateIndexFromIPC } = require('./src/services/quoteService');
 const { initDatabase, pool }     = require('./src/db/database');
 
 const SSE_INTERVAL_MS = parseInt(process.env.SSE_INTERVAL_MS || '10000', 10);
@@ -148,14 +174,27 @@ function killPort(port) {
 // ─── 启动服务（先释放端口 → 初始化数据库 → 监听）──────────────
 let server;
 (async () => {
-  // Docker 容器环境跳过端i容器启动时端口始终可用）
-  if (!process.env.DOCKER_ENV) {
+  // 仅开发模式执行端口释放（生产 Cluster 模式由主进程统一管理，Worker 无需竞争 kill）
+  if (IS_DEV && !process.env.DOCKER_ENV) {
     await killPort(PORT);
   }
   await initDatabase();
   server = app.listen(PORT, () => {
     console.log(`✅ A股收益追踪器已启动：http://localhost:${PORT}`);
-    startIndexPolling(SSE_INTERVAL_MS);
+
+    if (IS_DEV) {
+      // 开发模式（单进程）：本地启动行情轮询 + 每日快照定时器
+      startIndexPolling(SSE_INTERVAL_MS);
+      const { startDailySnapshotScheduler } = require('./src/services/snapshotService');
+      startDailySnapshotScheduler();
+    } else {
+      // 生产模式（Worker）：行情数据由主进程通过 IPC 广播，不在 Worker 内独立轮询
+      process.on('message', (msg) => {
+        if (msg && msg.type === 'index-update') {
+          updateIndexFromIPC(msg.payload);
+        }
+      });
+    }
   });
 })();
 
@@ -174,7 +213,10 @@ process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT',  () => gracefulShutdown('SIGINT'));
 
 // ─── 未捕获异常兜底 ───────────────────────────────────────────
-process.on('uncaughtException',  (err)    => console.error('[uncaughtException]',  err));
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err);
+  gracefulShutdown('uncaughtException'); // 触发优雅关机，避免进程进入不一致状态
+});
 process.on('unhandledRejection', (reason) => console.error('[unhandledRejection]', reason));
 
 module.exports = app;

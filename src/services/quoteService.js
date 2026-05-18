@@ -348,6 +348,7 @@ async function fetchMarketIndex() {
 
 /**
  * 启动大盘指数后台轮询，每 intervalMs 抓取一次并广播给所有 SSE 客户端
+ * 使用链式 setTimeout（而非 setInterval），确保上一次完成后再等待下一次，避免请求重叠
  */
 function startIndexPolling(intervalMs = 10000) {
   async function poll() {
@@ -358,10 +359,20 @@ function startIndexPolling(intervalMs = 10000) {
     } catch (err) {
       console.error('[IndexPolling] 抓取失败:', err.message);
     }
+    setTimeout(poll, intervalMs); // 链式调用，避免重叠
   }
   // 启动时立即执行一次
   poll();
-  setInterval(poll, intervalMs);
+}
+
+/**
+ * 供 Worker 进程通过 IPC 接收主进程广播的行情数据
+ * 生产 Cluster 模式下替代 startIndexPolling，避免每个 Worker 独立轮询
+ * @param {object} result  fetchMarketIndex() 的返回值
+ */
+function updateIndexFromIPC(result) {
+  latestIndexData = result;
+  indexEmitter.emit('index-update', result);
 }
 
 module.exports = {
@@ -369,6 +380,7 @@ module.exports = {
   fetchFundQuote,
   fetchMarketIndex,
   startIndexPolling,
+  updateIndexFromIPC,
   indexEmitter,
   getLatestIndexData: () => latestIndexData,
   normalizeStockCode,

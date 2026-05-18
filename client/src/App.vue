@@ -12,6 +12,9 @@
         <router-link to="/chat">投资顾问</router-link>
       </div>
       <div class="nav-right">
+        <!-- 版本信息 -->
+        <span class="app-version">v{{ appVersion }}</span>
+
         <!-- 主题切换按钮（直接显示在导航栏，快速切换） -->
         <button
           class="btn-icon theme-btn"
@@ -145,6 +148,9 @@ const route  = useRoute();
 const router = useRouter();
 const { privacyMode, togglePrivacy } = usePrivacy();
 
+// 应用版本号（构建时由 Vite 注入自 package.json）
+const appVersion = __APP_VERSION__;
+
 const username    = ref('');
 const menuOpen    = ref(false);
 const menuRef     = ref(null);
@@ -261,6 +267,17 @@ window.showToast = function (message, type = 'info', duration = 3000) {
 
 <style scoped>
 /* 主题切换按钮 */
+.app-version {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  user-select: none;
+}
+
 .theme-btn {
   font-size: 18px;
   transition: transform 0.3s ease, background 0.15s;

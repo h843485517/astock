@@ -306,6 +306,18 @@ async function getSnapshotByDate(userId, date) {
 }
 
 /**
+ * 查询所有有持仓记录的用户 ID 列表
+ * 用于定时快照任务：只处理当前有持仓的活跃用户
+ * @returns {Promise<number[]>}
+ */
+async function getAllActiveUsers() {
+  const [rows] = await pool.execute(
+    'SELECT DISTINCT user_id FROM positions'
+  );
+  return rows.map(r => r.user_id);
+}
+
+/**
  * 按 ID 查找用户（含 is_vip 字段）
  * @param {number} id
  */
@@ -362,4 +374,5 @@ module.exports = {
   upsertDailySnapshot,
   getDailySnapshots,
   getSnapshotByDate,
+  getAllActiveUsers,
 };

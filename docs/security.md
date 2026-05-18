@@ -41,7 +41,7 @@
 | **密码强度校验** | ≥8 位，必须同时包含大写字母、小写字母、数字 |
 | **用户名格式校验** | 3~20 位，仅允许字母/数字/下划线，正则白名单校验 |
 | **修改密码** | `PUT /api/auth/password` 需先校验原密码（`bcrypt.compare`），新密码同样经过强度校验后以 bcrypt 重新哈希存储 |
-| **修改密码后旧 Token 失效（token_version）** | `users` 表新增 `token_version INT UNSIGNED` 字段；修改密码时执行 `token_version = token_version + 1`，并清除客户端 Cookie；`requireAuth` 中间件在 JWT 签名验证通过后异步查库比对 `decoded.tokenVersion`，版本不匹配返回 `401`，确保密码修改后所有旧 Token 立即失效 |
+| **修改密码后旧 Token 失效（token_version）** | `users` 表新增 `token_version INT UNSIGNED` 字段；修改密码时执行 `token_version = token_version + 1`，并清除客户端 Cookie；`requireAuth` 中间件在 JWT 签名验证通过后 **`await` 同步查库**比对 `decoded.tokenVersion`，版本不匹配返回 `401`，确保密码修改后所有旧 Token 立即失效；DB 查询失败时返回 `500` 而非放行，避免故障期间安全绕过 |
 
 ---
 

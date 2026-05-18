@@ -13,9 +13,9 @@ if (!SECRET) {
 /**
  * Express 中间件：校验 HttpOnly Cookie 中的 JWT
  * 验证通过后将解析结果挂到 req.user = { id, username }
- * 同时校验 token_version 确保改密码后旧 Token 失效
+ * 同时 await 校验 token_version 确保改密码后旧 Token 立即失效
  */
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
   const token = req.cookies && req.cookies.token;
   if (!token) {
     return res.status(401).json({ code: 1, message: '未登录，请先登录' });
@@ -24,26 +24,28 @@ function requireAuth(req, res, next) {
     const decoded = jwt.verify(token, SECRET);
     req.user = decoded;
 
-    // 异步校验 token_version（不阻塞响应，但若版本不匹配则返回 401）
+    // 同步 await 校验 token_version，确保改密码后旧 Token 立即失效
     const db = require('../db/database');
-    db.getTokenVersion(decoded.id).then((dbVersion) => {
-      if (dbVersion === -1) {
-        // 用户不存在
-        res.clearCookie('token', { httpOnly: true, sameSite: 'strict' });
-        return res.status(401).json({ code: 1, message: '用户不存在，请重新登录' });
-      }
-      if (decoded.tokenVersion !== undefined && decoded.tokenVersion !== dbVersion) {
-        res.clearCookie('token', { httpOnly: true, sameSite: 'strict' });
-        return res.status(401).json({ code: 1, message: '密码已变更，请重新登录' });
-      }
-      next();
-    }).catch(() => {
-      // DB 查询失败时放行（降级：不因 DB 故障阻塞所有请求）
-      next();
-    });
-  } catch (_) {
-    res.clearCookie('token', { httpOnly: true, sameSite: 'strict' });
-    return res.status(401).json({ code: 1, message: 'Token 无效或已过期，请重新登录' });
+    const dbVersion = await db.getTokenVersion(decoded.id);
+
+    if (dbVersion === -1) {
+      res.clearCookie('token', { httpOnly: true, sameSite: 'strict' });
+      return res.status(401).json({ code: 1, message: '用户不存在，请重新登录' });
+    }
+    if (decoded.tokenVersion !== undefined && decoded.tokenVersion !== dbVersion) {
+      res.clearCookie('token', { httpOnly: true, sameSite: 'strict' });
+      return res.status(401).json({ code: 1, message: '密码已变更，请重新登录' });
+    }
+    next();
+  } catch (err) {
+    // JWT 验证失败（过期、签名错误等）
+    if (err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError') {
+      res.clearCookie('token', { httpOnly: true, sameSite: 'strict' });
+      return res.status(401).json({ code: 1, message: 'Token 无效或已过期，请重新登录' });
+    }
+    // DB 查询等其他错误：返回 500，不放行，避免安全绕过
+    console.error('[Auth] token_version 校验失败:', err.message);
+    return res.status(500).json({ code: 1, message: '认证服务暂不可用，请稍后重试' });
   }
 }
 
